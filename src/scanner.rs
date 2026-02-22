@@ -2,7 +2,7 @@ use std::{ops::RangeInclusive, path::Path, str::CharIndices};
 
 use crate::error::{LoxError, LoxErrorAcc};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum TokenKind<'src> {
     // Single characters: brackers
     LeftParen,
@@ -55,19 +55,18 @@ pub enum TokenKind<'src> {
     Eof,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Token<'src> {
     pub kind: TokenKind<'src>,
     pub lexeme: Option<&'src str>,
     pub span: RangeInclusive<usize>,
-    pub line: usize,
 }
 
 impl std::fmt::Display for Token<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!("Token/{:?}", self.kind,))?;
 
-        if self.span.start().abs_diff(*self.span.end()) <= 1 {
+        if self.span.start().abs_diff(*self.span.end()) == 0 {
             f.write_fmt(format_args!("@{}", self.span.start()))?;
         } else {
             f.write_fmt(format_args!("@{}..{}", self.span.start(), self.span.end()))?;
@@ -82,11 +81,10 @@ impl std::fmt::Display for Token<'_> {
 }
 
 impl<'src> Token<'src> {
-    pub fn empty(kind: TokenKind<'src>, span: RangeInclusive<usize>, line: usize) -> Self {
+    pub fn empty(kind: TokenKind<'src>, span: RangeInclusive<usize>) -> Self {
         Self {
             kind,
             span,
-            line,
             lexeme: None,
         }
     }
@@ -130,7 +128,6 @@ impl<'src> Scanner<'src> {
         self.tokens.push(Token::empty(
             TokenKind::Eof,
             self.source.len()..=self.source.len(),
-            self.current_line,
         ));
 
         if self.errors.is_empty() {
@@ -145,11 +142,7 @@ impl<'src> Scanner<'src> {
 
         macro_rules! token {
             ($kind:expr) => {
-                Some(Token::empty(
-                    $kind,
-                    lexeme_start..=self.current_char,
-                    self.current_line,
-                ))
+                Some(Token::empty($kind, lexeme_start..=(self.current_char - 1)))
             };
             ($char:expr => $kind:expr, else => $other:expr) => {
                 if self.find($char) {
@@ -195,7 +188,7 @@ impl<'src> Scanner<'src> {
                 self.errors.push(
                     LoxError::UnexpectedCharacter {
                         c,
-                        n: self.current_char,
+                        n: self.current_char - 1,
                     },
                     self.location,
                     self.current_line,
@@ -227,8 +220,7 @@ impl<'src> Scanner<'src> {
         Some(Token {
             kind: TokenKind::String(s),
             lexeme: self.source.get(start_byte..=end_byte),
-            span: start..=self.current_char,
-            line: self.current_line,
+            span: start..=(self.current_char - 1),
         })
     }
 
@@ -270,8 +262,7 @@ impl<'src> Scanner<'src> {
         Some(Token {
             kind: TokenKind::Number(n),
             lexeme: Some(lexeme),
-            span: start..=self.current_char,
-            line: self.current_line,
+            span: start..=(self.current_char - 1),
         })
     }
 
@@ -311,8 +302,7 @@ impl<'src> Scanner<'src> {
         Some(Token {
             kind,
             lexeme: Some(lexeme),
-            span: start..=self.current_char,
-            line: self.current_line,
+            span: start..=(self.current_char - 1),
         })
     }
 
@@ -362,5 +352,31 @@ impl<'src> Scanner<'src> {
 
     fn is_end(&self) -> bool {
         self.iter.clone().peekable().next().is_none()
+    }
+}
+
+#[cfg(test)]
+#[allow(unused)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scan_string() {
+        let tokens = Scanner::new(r#""string""#, None).scan().unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                Token {
+                    kind: TokenKind::String("string"),
+                    lexeme: Some("\"string\""),
+                    span: 0..=7,
+                },
+                Token {
+                    kind: TokenKind::Eof,
+                    lexeme: None,
+                    span: 8..=8
+                }
+            ]
+        )
     }
 }
