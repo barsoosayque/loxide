@@ -7,3 +7,4 @@ license = "MIT/Apache-2.0"
 [dependencies]
 eyre = "0.6.12"
 yansi = "1.0"
+lexopt = "0.3.1"

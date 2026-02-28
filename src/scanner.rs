@@ -1,6 +1,6 @@
 use std::{ops::RangeInclusive, path::Path, str::CharIndices};
 
-use crate::error::{LoxError, LoxErrorAcc};
+use crate::error::{LoxError, LoxErrorKind, LoxResult};
 
 #[derive(Debug, PartialEq)]
 pub enum TokenKind<'src> {
@@ -30,7 +30,7 @@ pub enum TokenKind<'src> {
     LessEqual,
 
     // Literals
-    Identifier,
+    Identifier(&'src str),
     String(&'src str),
     Number(f64),
 
@@ -58,22 +58,17 @@ pub enum TokenKind<'src> {
 #[derive(Debug, PartialEq)]
 pub struct Token<'src> {
     pub kind: TokenKind<'src>,
-    pub lexeme: Option<&'src str>,
     pub span: RangeInclusive<usize>,
 }
 
 impl std::fmt::Display for Token<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("Token/{:?}", self.kind,))?;
+        f.write_fmt(format_args!("Token::{:?}", self.kind,))?;
 
         if self.span.start().abs_diff(*self.span.end()) == 0 {
             f.write_fmt(format_args!("@{}", self.span.start()))?;
         } else {
             f.write_fmt(format_args!("@{}..{}", self.span.start(), self.span.end()))?;
-        }
-
-        if let Some(lexeme) = self.lexeme {
-            f.write_fmt(format_args!(": {lexeme}"))?;
         }
 
         Ok(())
@@ -82,67 +77,38 @@ impl std::fmt::Display for Token<'_> {
 
 impl<'src> Token<'src> {
     pub fn empty(kind: TokenKind<'src>, span: RangeInclusive<usize>) -> Self {
-        Self {
-            kind,
-            span,
-            lexeme: None,
-        }
+        Self { kind, span }
     }
 }
 
 #[derive(Debug)]
-pub struct Scanner<'src> {
-    source: &'src str,
-    location: Option<&'src Path>,
-
-    tokens: Vec<Token<'src>>,
-    errors: LoxErrorAcc,
-
+pub struct ScannerIter<'scanner, 'src> {
+    scanner: &'scanner Scanner<'src>,
     iter: CharIndices<'src>,
     current_line: usize,
     current_char: usize,
+    current_byte: usize,
+    is_terminated: bool,
 }
 
-impl<'src> Scanner<'src> {
-    pub fn new(source: &'src str, location: Option<&'src Path>) -> Self {
+impl<'scanner, 'src> ScannerIter<'scanner, 'src> {
+    pub fn new(scanner: &'scanner Scanner<'src>) -> Self {
         Self {
-            source,
-            location,
-            tokens: vec![],
-            errors: LoxErrorAcc::default(),
-            iter: source.char_indices(),
+            scanner,
+            iter: scanner.source.char_indices(),
             current_line: 0,
             current_char: 0,
+            current_byte: 0,
+            is_terminated: false,
         }
     }
 
-    // TODO: return iterator
-    pub fn scan(mut self) -> Result<Vec<Token<'src>>, LoxErrorAcc> {
-        while !self.is_end() {
-            let Some(token) = self.scan_token() else {
-                continue;
-            };
-            self.tokens.push(token);
-        }
-
-        self.tokens.push(Token::empty(
-            TokenKind::Eof,
-            self.source.len()..=self.source.len(),
-        ));
-
-        if self.errors.is_empty() {
-            Ok(self.tokens)
-        } else {
-            Err(self.errors)
-        }
-    }
-
-    fn scan_token(&mut self) -> Option<Token<'src>> {
+    fn next_token(&mut self) -> LoxResult<Token<'src>> {
         let lexeme_start = self.current_char;
 
         macro_rules! token {
             ($kind:expr) => {
-                Some(Token::empty($kind, lexeme_start..=(self.current_char - 1)))
+                Ok(Token::empty($kind, lexeme_start..=(self.current_char - 1)))
             };
             ($char:expr => $kind:expr, else => $other:expr) => {
                 if self.find($char) {
@@ -153,80 +119,73 @@ impl<'src> Scanner<'src> {
             };
         }
 
-        match self.advance() {
-            Some('(') => token!(TokenKind::LeftParen),
-            Some(')') => token!(TokenKind::RightParen),
-            Some('{') => token!(TokenKind::LeftBrace),
-            Some('}') => token!(TokenKind::RightBrace),
-            Some(',') => token!(TokenKind::Comma),
-            Some('.') => token!(TokenKind::Dot),
-            Some('-') => token!(TokenKind::Minus),
-            Some('+') => token!(TokenKind::Plus),
-            Some(';') => token!(TokenKind::Semicolon),
-            Some('*') => token!(TokenKind::Star),
-            Some('!') => token!('=' => TokenKind::BangEqual, else => TokenKind::Bang),
-            Some('=') => token!('=' => TokenKind::EqualEqual, else => TokenKind::Equal),
-            Some('<') => token!('=' => TokenKind::LessEqual, else => TokenKind::Less),
-            Some('>') => token!('=' => TokenKind::GreaterEqual, else => TokenKind::Greater),
-            Some('/') => {
+        match self.advance()? {
+            '(' => token!(TokenKind::LeftParen),
+            ')' => token!(TokenKind::RightParen),
+            '{' => token!(TokenKind::LeftBrace),
+            '}' => token!(TokenKind::RightBrace),
+            ',' => token!(TokenKind::Comma),
+            '.' => token!(TokenKind::Dot),
+            '-' => token!(TokenKind::Minus),
+            '+' => token!(TokenKind::Plus),
+            ';' => token!(TokenKind::Semicolon),
+            '*' => token!(TokenKind::Star),
+            '!' => token!('=' => TokenKind::BangEqual, else => TokenKind::Bang),
+            '=' => token!('=' => TokenKind::EqualEqual, else => TokenKind::Equal),
+            '<' => token!('=' => TokenKind::LessEqual, else => TokenKind::Less),
+            '>' => token!('=' => TokenKind::GreaterEqual, else => TokenKind::Greater),
+            '/' => {
                 if self.find('/') {
-                    self.consume_until('\n');
-                    None
+                    // Skip comments and try to scan again
+                    self.consume_until('\n')?;
+                    self.next_token()
                 } else {
                     token!(TokenKind::Slash)
                 }
             }
-            Some(' ') | Some('\r') | Some('\t') => None,
-            Some('\n') => {
+            ' ' | '\r' | '\t' => self.next_token(),
+            '\n' => {
                 self.current_line += 1;
-                None
+                self.next_token()
             }
-            Some('"') => self.string(lexeme_start),
-            Some('0'..='9') => self.number(lexeme_start),
-            Some('a'..='z') | Some('A'..='Z') => self.ident(lexeme_start),
-            Some(c) => {
-                self.errors.push(
-                    LoxError::UnexpectedCharacter {
-                        c,
-                        n: self.current_char - 1,
-                    },
-                    self.location,
-                    self.current_line,
-                );
-                None
-            }
-            None => None,
+            '"' => self.string(lexeme_start),
+            '0'..='9' => self.number(lexeme_start),
+            'a'..='z' | 'A'..='Z' => self.ident(lexeme_start),
+            c => Err(self.error(LoxErrorKind::UnexpectedCharacter { c })),
         }
     }
 
-    fn string(&mut self, start: usize) -> Option<Token<'src>> {
-        // Current byte - 1 to include starting "
-        let start_byte = self.current_byte()? - 1;
+    fn try_next_token(&mut self) -> LoxResult<Option<Token<'src>>> {
+        match self.next_token() {
+            Ok(token) => Ok(Some(token)),
+            Err(LoxError {
+                kind: LoxErrorKind::UnexpectedEof,
+                ..
+            }) => Ok(None),
+            Err(err) => Err(err),
+        }
+    }
 
-        if !self.consume_until('"') {
-            self.errors.push(
-                LoxError::UnterminatedString { start },
-                self.location,
-                self.current_line,
-            );
-            return None;
+    fn string(&mut self, start: usize) -> LoxResult<Token<'src>> {
+        let start_byte = self.current_byte + 1;
+
+        if !self.consume_until('"')? {
+            return Err(self.error(LoxErrorKind::UnterminatedString { start }));
         }
 
-        // Closing "
-        let end_byte = self.current_byte()?;
-        self.advance();
+        let end_byte = self.current_byte;
+        self.advance()?;
 
-        let s = self.source.get((start_byte + 1)..=(end_byte - 1))?;
-        Some(Token {
+        let s = self.source_slice(start_byte..=end_byte)?;
+        Ok(Token {
             kind: TokenKind::String(s),
-            lexeme: self.source.get(start_byte..=end_byte),
+            // lexeme: self.source.get(start_byte..=end_byte),
             span: start..=(self.current_char - 1),
         })
     }
 
-    fn number(&mut self, start: usize) -> Option<Token<'src>> {
-        // Current byte - 1 to include starting digit
-        let start_byte = self.current_byte()? - 1;
+    fn number(&mut self, start: usize) -> LoxResult<Token<'src>> {
+        let start_byte = self.current_byte;
 
         while matches!(self.peek(), Some('0'..='9')) {
             self.advance()?;
@@ -242,33 +201,27 @@ impl<'src> Scanner<'src> {
             _ => {}
         }
 
-        // No idea why - 1
-        let end_byte = self.current_byte()? - 1;
-        let lexeme = self.source.get(start_byte..=end_byte)?;
+        let end_byte = self.current_byte;
+        let lexeme = self.source_slice(start_byte..=end_byte)?;
         let n = lexeme
             .parse::<f64>()
             .or_else(|_| lexeme.parse::<u64>().map(|n| n as f64))
-            .inspect_err(|_err| {
-                self.errors.push(
-                    LoxError::InvalidNumber {
-                        s: lexeme.to_string(),
-                    },
-                    self.location,
-                    self.current_line,
-                );
-            })
-            .ok()?;
+            .map_err(|_err| {
+                self.error(LoxErrorKind::InvalidNumber {
+                    s: lexeme.to_string(),
+                    start,
+                })
+            })?;
 
-        Some(Token {
+        Ok(Token {
             kind: TokenKind::Number(n),
-            lexeme: Some(lexeme),
+            // lexeme: Some(lexeme),
             span: start..=(self.current_char - 1),
         })
     }
 
-    fn ident(&mut self, start: usize) -> Option<Token<'src>> {
-        // Current byte - 1 to include starting character
-        let start_byte = self.current_byte()? - 1;
+    fn ident(&mut self, start: usize) -> LoxResult<Token<'src>> {
+        let start_byte = self.current_byte;
 
         while matches!(
             self.peek(),
@@ -276,9 +229,9 @@ impl<'src> Scanner<'src> {
         ) {
             self.advance()?;
         }
-        let end_byte = self.current_byte()? - 1;
+        let end_byte = self.current_byte;
 
-        let lexeme = self.source.get(start_byte..=end_byte)?;
+        let lexeme = self.source_slice(start_byte..=end_byte)?;
         let kind = match lexeme {
             "and" => TokenKind::And,
             "class" => TokenKind::Class,
@@ -296,24 +249,36 @@ impl<'src> Scanner<'src> {
             "true" => TokenKind::True,
             "var" => TokenKind::Var,
             "while" => TokenKind::While,
-            _ => TokenKind::Identifier,
+            lexeme => TokenKind::Identifier(lexeme),
         };
 
-        Some(Token {
+        Ok(Token {
             kind,
-            lexeme: Some(lexeme),
+            // lexeme: Some(lexeme),
             span: start..=(self.current_char - 1),
         })
     }
 
-    fn current_byte(&self) -> Option<usize> {
-        self.iter.clone().peekable().next().map(|(idx, _)| idx)
+    fn error(&self, kind: LoxErrorKind) -> LoxError {
+        LoxError::new(kind, self.current_line, self.current_char.saturating_sub(1))
+            .with_path(self.scanner.location)
     }
 
-    fn advance(&mut self) -> Option<char> {
-        let (_idx, char) = self.iter.next()?;
+    fn source_slice(&self, range: RangeInclusive<usize>) -> LoxResult<&'src str> {
+        self.scanner
+            .source
+            .get(range)
+            .ok_or_else(|| self.error(LoxErrorKind::InvalidInput))
+    }
+
+    fn advance(&mut self) -> LoxResult<char> {
+        let (idx, char) = self
+            .iter
+            .next()
+            .ok_or_else(|| self.error(LoxErrorKind::UnexpectedEof))?;
         self.current_char += 1;
-        Some(char)
+        self.current_byte = idx;
+        Ok(char)
     }
 
     fn peek(&self) -> Option<char> {
@@ -334,20 +299,21 @@ impl<'src> Scanner<'src> {
         }
     }
 
-    fn consume_until(&mut self, expected: char) -> bool {
+    fn consume_until(&mut self, expected: char) -> LoxResult<bool> {
         while let Some(peek) = self.peek() {
             if peek == expected {
-                return true;
+                return Ok(true);
             } else {
-                let Some(c) = self.advance() else {
-                    continue;
-                };
-                if c == '\n' {
-                    self.current_line += 1;
+                match self.advance() {
+                    Ok('\n') => {
+                        self.current_line += 1;
+                    }
+                    Ok(_) => {}
+                    Err(err) => return Err(err),
                 }
             }
         }
-        false
+        Ok(false)
     }
 
     fn is_end(&self) -> bool {
@@ -355,25 +321,63 @@ impl<'src> Scanner<'src> {
     }
 }
 
+impl<'scanner, 'src> Iterator for ScannerIter<'scanner, 'src> {
+    type Item = LoxResult<Token<'src>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.is_end() {
+            if self.is_terminated {
+                return None;
+            } else {
+                self.is_terminated = true;
+                return Some(Ok(Token::empty(
+                    TokenKind::Eof,
+                    self.scanner.source.len()..=self.scanner.source.len(),
+                )));
+            }
+        }
+        self.try_next_token().transpose()
+    }
+}
+
+#[derive(Debug)]
+pub struct Scanner<'src> {
+    source: &'src str,
+    location: Option<&'src Path>,
+}
+
+impl<'src> Scanner<'src> {
+    pub fn new(source: &'src str, location: Option<&'src Path>) -> Self {
+        Self { source, location }
+    }
+
+    pub fn scan(&self) -> impl Iterator<Item = Result<Token<'src>, LoxError>> {
+        ScannerIter::new(&self)
+    }
+}
+
 #[cfg(test)]
 #[allow(unused)]
 mod tests {
     use super::*;
+    use crate::error::LoxResultIter;
 
     #[test]
     fn scan_string() {
-        let tokens = Scanner::new(r#""string""#, None).scan().unwrap();
+        let tokens = Scanner::new(r#""string""#, None)
+            .scan()
+            .ignore_errors()
+            .collect::<Vec<_>>();
+
         assert_eq!(
             tokens,
             vec![
                 Token {
                     kind: TokenKind::String("string"),
-                    lexeme: Some("\"string\""),
                     span: 0..=7,
                 },
                 Token {
                     kind: TokenKind::Eof,
-                    lexeme: None,
                     span: 8..=8
                 }
             ]
