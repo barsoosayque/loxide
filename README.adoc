@@ -1,0 +1,14 @@
+= Loxide
+
+Rust implementation of https://craftinginterpreters.com/[*Lox language*] interpreter for our https://snpefk.github.io/bookclub/[CS Bookclub].
+
+== Goals
+
+Because it's an educational project with primary goals to learn how to write interpreters from scratch, the project doesn't strive to provide any sane user experience or ease of use. The code is probably a mess. It's certainly unoptimized and yucky. And I won't change any of that !
+
+Another small goals I try to achieve with this implementation:
+
+* As much _zero-copy_ as possible;
+* Error accumulation and propagation using _Result_;
+* As much memory allocations as possible, i.e. return `impl Iterator` wherever possible.
+
