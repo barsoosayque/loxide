@@ -50,13 +50,21 @@ struct App {
 impl App {
     pub fn run(self) -> Result<()> {
         if let Some(file) = &self.file {
-            println!("• {} {}:", "Loxide".yellow(), file.blue().underline());
+            println!(
+                "• {} running {}",
+                "loxide".yellow(),
+                file.blue().underline()
+            );
 
             let file = file.as_ref();
             let script = std::fs::read_to_string(file)?;
             return run_script(&script, Some(file), &self.options);
         } else {
-            println!("• {} {}:", "Loxide".yellow(), "REPL".green().underline());
+            println!(
+                "• {} in {} mode",
+                "loxide".yellow(),
+                "REPL".green().underline()
+            );
 
             let mut buffer = String::new();
             loop {
