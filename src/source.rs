@@ -157,3 +157,39 @@ impl SourceSpanTracker {
         span
     }
 }
+
+#[derive(Debug)]
+pub struct SourceSpanTrackerStack(Vec<SourceSpanTracker>);
+
+impl SourceSpanTrackerStack {
+    pub fn get(&self) -> SourceSpan {
+        self.0.last().unwrap().get()
+    }
+
+    pub fn push(&mut self, start: SourceSpan) {
+        let mut tracker = SourceSpanTracker::default();
+        tracker.start_char = start.char_start();
+        tracker.start_byte = start.bytes_start();
+        self.0.push(tracker);
+    }
+
+    pub fn pop(&mut self) -> SourceSpan {
+        assert!(self.0.len() > 1);
+        let last = self.0.pop().unwrap();
+        last.get()
+    }
+
+    pub fn advance_to(&mut self, span: SourceSpan) {
+        for tracker in &mut self.0 {
+            tracker.current_line = span.line;
+            tracker.current_char = span.char_end().saturating_add(1);
+            tracker.current_byte = span.bytes_end().saturating_add(1);
+        }
+    }
+}
+
+impl Default for SourceSpanTrackerStack {
+    fn default() -> Self {
+        Self(vec![Default::default()])
+    }
+}

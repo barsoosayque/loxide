@@ -1,13 +1,50 @@
-use display_tree::{AsTree, DisplayTree};
+use display_tree::{AsTree, DisplayTree, to_display_tree_ref::ToDisplayTreeRef};
 
-use crate::token::TokenKind;
+use crate::{source::SourceSpan, token::TokenKind};
+
+#[derive(Debug, Clone)]
+pub struct Expr<'src> {
+    pub kind: ExprKind<'src>,
+    pub span: SourceSpan,
+}
+
+impl<'src> Expr<'src> {
+    pub fn new(kind: ExprKind<'src>, span: SourceSpan) -> Self {
+        Self { kind, span }
+    }
+}
+
+impl std::fmt::Display for Expr<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Expr")?;
+        if self.span.is_char() {
+            f.write_fmt(format_args!("@{}", self.span.char_start()))?;
+        } else {
+            f.write_fmt(format_args!(
+                "@{}..{}",
+                self.span.char_start(),
+                self.span.char_end()
+            ))?;
+        }
+
+        f.write_fmt(format_args!("\n{}", self.kind))?;
+
+        Ok(())
+    }
+}
+
+impl<'src> ToDisplayTreeRef<ExprKind<'src>> for Box<Expr<'src>> {
+    fn to_display_tree(&self) -> &ExprKind<'src> {
+        &self.kind
+    }
+}
 
 // `Box<Expr>` ??? In my epic blazingly fast AST ???
 // Surely rustc *has* something better:
 // https://github.com/rust-lang/rust/blob/765fd2d8c77a570e7069d9f30bb6d3d8fe437f9e/compiler/rustc_ast/src/ast.rs#L1739
 // Oh... oh, ok.
 #[derive(DisplayTree, Debug, Clone)]
-pub enum Expr<'src> {
+pub enum ExprKind<'src> {
     Binary {
         #[tree]
         left: Box<Expr<'src>>,
@@ -26,30 +63,14 @@ pub enum Expr<'src> {
         #[tree]
         inner: Box<Expr<'src>>,
     },
-    Literal(ExprLiteral<'src>),
+    LitString(&'src str),
+    LitNumber(f64),
+    LitBoolean(bool),
+    LitNil,
 }
 
-impl std::fmt::Display for Expr<'_> {
+impl std::fmt::Display for ExprKind<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         AsTree::new(self).fmt(f)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum ExprLiteral<'src> {
-    String(&'src str),
-    Number(f64),
-    Boolean(bool),
-    Nil,
-}
-
-impl<'src> std::fmt::Display for ExprLiteral<'src> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::String(s) => f.write_fmt(format_args!("\"{s}\"")),
-            Self::Number(n) => f.write_fmt(format_args!("{n}")),
-            Self::Boolean(b) => f.write_fmt(format_args!("{b}")),
-            Self::Nil => f.write_str("nil"),
-        }
     }
 }

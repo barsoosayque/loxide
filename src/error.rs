@@ -16,6 +16,7 @@ pub enum LoxErrorKind<'src> {
     ExpectedExpr,
     UnterminatedString,
     InvalidNumber(String),
+    InvalidConversion(&'static str, &'static str),
 }
 
 impl<'src> std::fmt::Display for LoxErrorKind<'src> {
@@ -28,6 +29,9 @@ impl<'src> std::fmt::Display for LoxErrorKind<'src> {
             Self::ExpectedExpr => f.write_str("Expected expression"),
             Self::UnterminatedString { .. } => f.write_fmt(format_args!("Unterminated string")),
             Self::InvalidNumber(s) => f.write_fmt(format_args!("Invalid number: '{s}'")),
+            Self::InvalidConversion(from, to) => {
+                f.write_fmt(format_args!("Cannot convert {from} to {to}"))
+            }
         }
     }
 }

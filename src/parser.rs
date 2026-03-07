@@ -1,9 +1,9 @@
 use std::{iter::Peekable, path::Path};
 
 use crate::{
-    ast::{Expr, ExprLiteral},
+    ast::{Expr, ExprKind},
     error::{LoxError, LoxErrorKind, LoxResult},
-    source::{IntoSource, Source, SourceSpanTracker},
+    source::{IntoSource, Source, SourceSpanTracker, SourceSpanTrackerStack},
     token::{Token, TokenKind},
 };
 
@@ -12,6 +12,7 @@ where
     I: Iterator<Item = Token<'src>>,
 {
     source: Source<'src>,
+    stack: SourceSpanTrackerStack,
     tracker: SourceSpanTracker,
     tokens: Peekable<I>,
 }
@@ -20,7 +21,11 @@ macro_rules! expect {
     ($parser:expr, $token_pat:pat) => {
         if let Some(token) = $parser.peek() {
             match token.kind {
-                $token_pat => Some($parser.advance()?),
+                $token_pat => {
+                    let token = $parser.advance()?;
+                    $parser.stack.push(token.span.clone());
+                    Some(token)
+                }
                 _ => None,
             }
         } else {
@@ -36,11 +41,14 @@ macro_rules! binary {
 
             while let Some(op) = expect!(self, TokenKind::Minus | TokenKind::Plus) {
                 let right = self.$next()?;
-                expr = Expr::Binary {
-                    left: Box::new(expr),
-                    op: op.kind,
-                    right: Box::new(right),
-                };
+                expr = Expr::new(
+                    ExprKind::Binary {
+                        left: Box::new(expr),
+                        op: op.kind,
+                        right: Box::new(right),
+                    },
+                    self.stack.pop(),
+                );
             }
 
             Ok(expr)
@@ -58,6 +66,7 @@ where
     {
         Self {
             tokens: tokens.into_iter().peekable(),
+            stack: SourceSpanTrackerStack::default(),
             tracker: SourceSpanTracker::default(),
             source: source.into_source(),
         }
@@ -81,10 +90,13 @@ where
     fn unary(&mut self) -> LoxResult<'src, Expr<'src>> {
         if let Some(op) = expect!(self, TokenKind::Bang | TokenKind::Minus) {
             let right = self.unary()?;
-            return Ok(Expr::Unary {
-                op: op.kind,
-                right: Box::new(right),
-            });
+            return Ok(Expr::new(
+                ExprKind::Unary {
+                    op: op.kind,
+                    right: Box::new(right),
+                },
+                self.stack.pop(),
+            ));
         }
 
         self.primary()
@@ -92,13 +104,13 @@ where
 
     fn primary(&mut self) -> LoxResult<'src, Expr<'src>> {
         if let Some(_) = expect!(self, TokenKind::False) {
-            return Ok(Expr::Literal(ExprLiteral::Boolean(false)));
+            return Ok(Expr::new(ExprKind::LitBoolean(false), self.stack.pop()));
         }
         if let Some(_) = expect!(self, TokenKind::True) {
-            return Ok(Expr::Literal(ExprLiteral::Boolean(true)));
+            return Ok(Expr::new(ExprKind::LitBoolean(true), self.stack.pop()));
         }
         if let Some(_) = expect!(self, TokenKind::Nil) {
-            return Ok(Expr::Literal(ExprLiteral::Nil));
+            return Ok(Expr::new(ExprKind::LitNil, self.stack.pop()));
         }
 
         if let Some(Token {
@@ -106,22 +118,25 @@ where
             ..
         }) = expect!(self, TokenKind::String(..))
         {
-            return Ok(Expr::Literal(ExprLiteral::String(s)));
+            return Ok(Expr::new(ExprKind::LitString(s), self.stack.pop()));
         }
         if let Some(Token {
             kind: TokenKind::Number(n),
             ..
         }) = expect!(self, TokenKind::Number(..))
         {
-            return Ok(Expr::Literal(ExprLiteral::Number(n)));
+            return Ok(Expr::new(ExprKind::LitNumber(n), self.stack.pop()));
         }
 
         if let Some(_) = expect!(self, TokenKind::LeftParen) {
             let inner = self.expr()?;
             self.consume(TokenKind::RightParen)?;
-            return Ok(Expr::Grouping {
-                inner: Box::new(inner),
-            });
+            return Ok(Expr::new(
+                ExprKind::Grouping {
+                    inner: Box::new(inner),
+                },
+                self.stack.pop(),
+            ));
         }
 
         // let next = self.advance()?.kind;
@@ -139,8 +154,10 @@ where
         };
 
         if let Some(Token { span, .. }) = self.peek().cloned() {
+            self.stack.advance_to(span.clone());
             self.tracker.set(span);
         } else {
+            self.stack.advance_to(next.span.clone());
             self.tracker.set(next.span.clone());
         }
 
@@ -196,7 +213,7 @@ where
     fn is_end(&mut self) -> bool {
         matches!(
             self.peek(),
-            Some(Token {
+            None | Some(Token {
                 kind: TokenKind::Eof,
                 ..
             })

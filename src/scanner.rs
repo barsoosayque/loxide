@@ -31,7 +31,10 @@ impl<'src> Scanner<'src> {
     fn next_token(&mut self) -> LoxResult<'src, Token<'src>> {
         macro_rules! token {
             ($kind:expr) => {
-                Ok(Token::empty($kind, self.tracker.consume()))
+                Ok(Token {
+                    kind: $kind,
+                    span: self.tracker.consume(),
+                })
             };
             ($char:expr => $kind:expr, else => $other:expr) => {
                 if self.find($char) {
@@ -240,7 +243,10 @@ impl<'src> Iterator for Scanner<'src> {
                 return None;
             } else {
                 self.is_terminated = true;
-                return Some(Ok(Token::empty(TokenKind::Eof, self.tracker.eof())));
+                return Some(Ok(Token {
+                    kind: TokenKind::Eof,
+                    span: self.tracker.eof(),
+                }));
             }
         }
         self.try_next_token().transpose()

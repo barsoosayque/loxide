@@ -122,9 +122,3 @@ impl std::fmt::Display for Token<'_> {
         Ok(())
     }
 }
-
-impl<'src> Token<'src> {
-    pub fn empty(kind: TokenKind<'src>, span: SourceSpan) -> Self {
-        Self { kind, span }
-    }
-}
