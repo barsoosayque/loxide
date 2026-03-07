@@ -112,8 +112,8 @@ pub struct RunnerOptions {
 impl Default for RunnerOptions {
     fn default() -> Self {
         Self {
-            print_tokens: true,
-            print_ast: true,
+            print_tokens: false,
+            print_ast: false,
         }
     }
 }
@@ -141,9 +141,9 @@ fn run_script<'src>(
     let value = std::iter::once(Interpreter::interpret(ast, &source))
         .handle_errors()
         .next()
-        .unwrap();
+        .unwrap_or_default();
 
-    println!("{}", value.to_string().italic());
+    println!("{}", value.to_string().italic().bright_black());
 
     Ok(())
 }

@@ -39,7 +39,7 @@ macro_rules! binary {
         fn $name(&mut self) -> LoxResult<'src, Expr<'src>> {
             let mut expr = self.$next()?;
 
-            while let Some(op) = expect!(self, TokenKind::Minus | TokenKind::Plus) {
+            while let Some(op) = expect!(self, $token_pat) {
                 let right = self.$next()?;
                 expr = Expr::new(
                     ExprKind::Binary {
@@ -139,9 +139,12 @@ where
             ));
         }
 
-        // let next = self.advance()?.kind;
-        // Err(self.error(LoxErrorKind::UnexpectedToken(next)))
-        Err(self.error(LoxErrorKind::ExpectedExpr))
+        if let Some(Token { kind, .. }) = self.peek() {
+            let kind = kind.clone();
+            Err(self.error(LoxErrorKind::UnexpectedToken(kind)))
+        } else {
+            Err(self.error(LoxErrorKind::ExpectedExpr))
+        }
     }
 
     fn peek(&mut self) -> Option<&Token<'src>> {
