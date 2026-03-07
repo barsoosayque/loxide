@@ -12,3 +12,15 @@ Other small goals I try to achieve with this implementation:
 * Error accumulation and propagation using _Result_;
 * As little memory allocations as possible, i.e. return `impl Iterator` wherever possible.
 
+== Usage
+
+Run a Lox script:
+----
+loxide script.lox
+----
+
+Run in REPL mode:
+----
+loxide
+----
+
