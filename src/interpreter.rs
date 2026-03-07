@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate::{
     ast::{Expr, ExprKind},
     error::{LoxError, LoxErrorKind, LoxResult},
@@ -11,15 +13,15 @@ const BOOLEAN_KIND: &'static str = "boolean";
 const NIL_KIND: &'static str = "nil";
 
 #[derive(Debug, Default, Clone)]
-pub enum LoxValue {
+pub enum LoxValue<'src> {
     #[default]
     Nil,
     Number(f64),
-    String(String),
+    String(Cow<'src, str>),
     Boolean(bool),
 }
 
-impl LoxValue {
+impl<'src> LoxValue<'src> {
     pub fn try_into_number(self) -> Option<Self> {
         match self {
             n @ LoxValue::Number(_) => Some(n),
@@ -30,7 +32,7 @@ impl LoxValue {
     pub fn try_into_string(self) -> Option<Self> {
         match self {
             s @ LoxValue::String(_) => Some(s),
-            v => Some(LoxValue::String(v.to_string())),
+            v => Some(LoxValue::String(v.to_string().into())),
         }
     }
 
@@ -52,7 +54,7 @@ impl LoxValue {
     }
 }
 
-impl PartialEq for LoxValue {
+impl PartialEq for LoxValue<'_> {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Nil, Self::Nil) => true,
@@ -64,7 +66,7 @@ impl PartialEq for LoxValue {
     }
 }
 
-impl std::fmt::Display for LoxValue {
+impl std::fmt::Display for LoxValue<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Number(n) if n.fract() >= f64::EPSILON => write!(f, "{n}"),
@@ -78,7 +80,7 @@ impl std::fmt::Display for LoxValue {
 
 macro_rules! cast {
     ($name:ident => $out:ty, $f:ident in $pat:pat => $val:expr, as $kind:expr) => {
-        fn $name(&self, value: LoxValue, span: SourceSpan) -> LoxResult<'src, $out> {
+        fn $name(&self, value: LoxValue<'src>, span: SourceSpan) -> LoxResult<'src, $out> {
             let kind = value.kind();
             match value.$f() {
                 Some($pat) => Ok($val),
@@ -105,7 +107,7 @@ impl<'src> Interpreter<'src> {
     pub fn interpret<T: IntoIterator<Item = Expr<'src>>>(
         ast: T,
         source: impl IntoSource<'src>,
-    ) -> LoxResult<'src, LoxValue> {
+    ) -> LoxResult<'src, LoxValue<'src>> {
         let mut interpreter = Self {
             source: source.into_source(),
         };
@@ -118,7 +120,7 @@ impl<'src> Interpreter<'src> {
         interpreter.eval(&expr)
     }
 
-    fn eval(&mut self, expr: &Expr<'src>) -> LoxResult<'src, LoxValue> {
+    fn eval(&mut self, expr: &Expr<'src>) -> LoxResult<'src, LoxValue<'src>> {
         match &expr.kind {
             ExprKind::Binary { left, op, right } => {
                 let left_value = self.eval(&left)?;
@@ -171,7 +173,7 @@ impl<'src> Interpreter<'src> {
                             return Ok(LoxValue::Number(left_n + right_n));
                         }
                         (LoxValue::String(left_s), LoxValue::String(right_s)) => {
-                            return Ok(LoxValue::String(format!("{left_s}{right_s}")));
+                            return Ok(LoxValue::String(format!("{left_s}{right_s}").into()));
                         }
                         _ => {
                             return Err(LoxError {
@@ -202,7 +204,7 @@ impl<'src> Interpreter<'src> {
             ExprKind::Grouping { inner } => {
                 return self.eval(&inner);
             }
-            ExprKind::LitString(s) => return Ok(LoxValue::String(s.to_string())),
+            &ExprKind::LitString(s) => return Ok(LoxValue::String(s.into())),
             &ExprKind::LitNumber(n) => return Ok(LoxValue::Number(n)),
             &ExprKind::LitBoolean(b) => return Ok(LoxValue::Boolean(b)),
             ExprKind::LitNil => return Ok(LoxValue::Nil),
@@ -216,6 +218,6 @@ impl<'src> Interpreter<'src> {
     }
 
     cast!(cast_number => f64, try_into_number in LoxValue::Number(v) => v, as NUMBER_KIND);
-    cast!(cast_string => String, try_into_string in LoxValue::String(v) => v, as STRING_KIND);
+    cast!(cast_string => Cow<'src, str>, try_into_string in LoxValue::String(v) => v, as STRING_KIND);
     cast!(cast_boolean => bool, try_into_boolean in LoxValue::Boolean(v) => v, as BOOLEAN_KIND);
 }
