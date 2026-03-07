@@ -4,10 +4,19 @@ use eyre::Result;
 use std::{io::Write, path::Path};
 use yansi::Paint;
 
-use crate::{ast::Expr, error::LoxResultIter, token::Token};
+use crate::{
+    ast::{Expr, ExprKind},
+    error::LoxResultIter,
+    interpreter::Interpreter,
+    parser::Parser,
+    scanner::Scanner,
+    source::Source,
+    token::Token,
+};
 
 mod ast;
 mod error;
+mod interpreter;
 mod parser;
 mod scanner;
 mod source;
@@ -114,21 +123,27 @@ fn run_script<'src>(
     location: Option<&'src Path>,
     options: &RunnerOptions,
 ) -> Result<()> {
-    let source = source::Source {
+    let source = Source {
         script: script.as_ref(),
         location,
     };
 
-    // consume iterator to process all of the errors before moving forward
-    let tokens = scanner::Scanner::scan(&source).handle_to_vec();
+    let tokens = Scanner::scan(&source).handle_to_vec();
     if options.print_tokens {
         print_tokens(&tokens);
     }
 
-    let exprs = parser::Parser::parse(tokens, &source).handle_to_vec();
+    let ast = Parser::parse(tokens, &source).handle_to_vec();
     if options.print_ast {
-        print_ast(&exprs);
+        print_ast(&ast);
     }
+
+    let value = std::iter::once(Interpreter::interpret(ast, &source))
+        .handle_errors()
+        .next()
+        .unwrap();
+
+    println!("{}", value.to_string().italic());
 
     Ok(())
 }
