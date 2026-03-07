@@ -1,8 +1,12 @@
-use std::{ops::RangeInclusive, path::Path, str::CharIndices};
+use peek_again::Peekable;
+use std::str::CharIndices;
 
-use crate::error::{LoxError, LoxErrorKind, LoxResult};
+use crate::{
+    error::{LoxError, LoxErrorKind, LoxResult},
+    source::{IntoSource, Source, SourceSpan, SourceSpanTracker},
+};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum TokenKind<'src> {
     // Single characters: brackers
     LeftParen,
@@ -55,20 +59,24 @@ pub enum TokenKind<'src> {
     Eof,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Token<'src> {
     pub kind: TokenKind<'src>,
-    pub span: RangeInclusive<usize>,
+    pub span: SourceSpan,
 }
 
 impl std::fmt::Display for Token<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!("Token::{:?}", self.kind,))?;
 
-        if self.span.start().abs_diff(*self.span.end()) == 0 {
-            f.write_fmt(format_args!("@{}", self.span.start()))?;
+        if self.span.is_char() {
+            f.write_fmt(format_args!("@{}", self.span.char_start()))?;
         } else {
-            f.write_fmt(format_args!("@{}..{}", self.span.start(), self.span.end()))?;
+            f.write_fmt(format_args!(
+                "@{}..{}",
+                self.span.char_start(),
+                self.span.char_end()
+            ))?;
         }
 
         Ok(())
@@ -76,39 +84,36 @@ impl std::fmt::Display for Token<'_> {
 }
 
 impl<'src> Token<'src> {
-    pub fn empty(kind: TokenKind<'src>, span: RangeInclusive<usize>) -> Self {
+    pub fn empty(kind: TokenKind<'src>, span: SourceSpan) -> Self {
         Self { kind, span }
     }
 }
 
 #[derive(Debug)]
-pub struct ScannerIter<'scanner, 'src> {
-    scanner: &'scanner Scanner<'src>,
-    iter: CharIndices<'src>,
-    current_line: usize,
-    current_char: usize,
-    current_byte: usize,
+pub struct Scanner<'src> {
+    source: Source<'src>,
+    iter: Peekable<CharIndices<'src>>,
+    tracker: SourceSpanTracker,
     is_terminated: bool,
 }
 
-impl<'scanner, 'src> ScannerIter<'scanner, 'src> {
-    pub fn new(scanner: &'scanner Scanner<'src>) -> Self {
+impl<'src> Scanner<'src> {
+    pub fn scan(source: impl IntoSource<'src>) -> Self {
+        let source = source.into_source();
+        let iter = Peekable::new(source.script.char_indices());
+
         Self {
-            scanner,
-            iter: scanner.source.char_indices(),
-            current_line: 0,
-            current_char: 0,
-            current_byte: 0,
+            source,
+            iter,
+            tracker: SourceSpanTracker::default(),
             is_terminated: false,
         }
     }
 
-    fn next_token(&mut self) -> LoxResult<Token<'src>> {
-        let lexeme_start = self.current_char;
-
+    fn next_token(&mut self) -> LoxResult<'src, Token<'src>> {
         macro_rules! token {
             ($kind:expr) => {
-                Ok(Token::empty($kind, lexeme_start..=(self.current_char - 1)))
+                Ok(Token::empty($kind, self.tracker.consume()))
             };
             ($char:expr => $kind:expr, else => $other:expr) => {
                 if self.find($char) {
@@ -143,19 +148,21 @@ impl<'scanner, 'src> ScannerIter<'scanner, 'src> {
                     token!(TokenKind::Slash)
                 }
             }
-            ' ' | '\r' | '\t' => self.next_token(),
-            '\n' => {
-                self.current_line += 1;
+            '"' => self.string(),
+            '0'..='9' => self.number(),
+            'a'..='z' | 'A'..='Z' => self.ident(),
+            ' ' | '\r' | '\t' | '\n' => {
+                self.tracker.consume();
                 self.next_token()
             }
-            '"' => self.string(lexeme_start),
-            '0'..='9' => self.number(lexeme_start),
-            'a'..='z' | 'A'..='Z' => self.ident(lexeme_start),
-            c => Err(self.error(LoxErrorKind::UnexpectedCharacter { c })),
+            c => {
+                self.tracker.consume();
+                Err(self.error(LoxErrorKind::UnexpectedCharacter(c)))
+            }
         }
     }
 
-    fn try_next_token(&mut self) -> LoxResult<Option<Token<'src>>> {
+    fn try_next_token(&mut self) -> LoxResult<'src, Option<Token<'src>>> {
         match self.next_token() {
             Ok(token) => Ok(Some(token)),
             Err(LoxError {
@@ -166,32 +173,28 @@ impl<'scanner, 'src> ScannerIter<'scanner, 'src> {
         }
     }
 
-    fn string(&mut self, start: usize) -> LoxResult<Token<'src>> {
-        let start_byte = self.current_byte + 1;
-
+    fn string(&mut self) -> LoxResult<'src, Token<'src>> {
         if !self.consume_until('"')? {
-            return Err(self.error(LoxErrorKind::UnterminatedString { start }));
+            return Err(self.error(LoxErrorKind::UnterminatedString));
         }
 
-        let end_byte = self.current_byte;
         self.advance()?;
 
-        let s = self.source_slice(start_byte..=end_byte)?;
+        let lexeme = self.current_span_lexeme();
+        let s = lexeme.trim_matches('"');
+
         Ok(Token {
             kind: TokenKind::String(s),
-            // lexeme: self.source.get(start_byte..=end_byte),
-            span: start..=(self.current_char - 1),
+            span: self.tracker.consume(),
         })
     }
 
-    fn number(&mut self, start: usize) -> LoxResult<Token<'src>> {
-        let start_byte = self.current_byte;
-
+    fn number(&mut self) -> LoxResult<'src, Token<'src>> {
         while matches!(self.peek(), Some('0'..='9')) {
             self.advance()?;
         }
 
-        match (self.peek(), self.peek_nth(1)) {
+        match (self.peek(), self.peek_2()) {
             (Some('.'), Some('0'..='9')) => {
                 self.advance()?;
                 while matches!(self.peek(), Some('0'..='9')) {
@@ -201,37 +204,27 @@ impl<'scanner, 'src> ScannerIter<'scanner, 'src> {
             _ => {}
         }
 
-        let end_byte = self.current_byte;
-        let lexeme = self.source_slice(start_byte..=end_byte)?;
+        let lexeme = self.current_span_lexeme();
         let n = lexeme
             .parse::<f64>()
             .or_else(|_| lexeme.parse::<u64>().map(|n| n as f64))
-            .map_err(|_err| {
-                self.error(LoxErrorKind::InvalidNumber {
-                    s: lexeme.to_string(),
-                    start,
-                })
-            })?;
+            .map_err(|_err| self.error(LoxErrorKind::InvalidNumber(lexeme.to_string())))?;
 
         Ok(Token {
             kind: TokenKind::Number(n),
-            // lexeme: Some(lexeme),
-            span: start..=(self.current_char - 1),
+            span: self.tracker.consume(),
         })
     }
 
-    fn ident(&mut self, start: usize) -> LoxResult<Token<'src>> {
-        let start_byte = self.current_byte;
-
+    fn ident(&mut self) -> LoxResult<'src, Token<'src>> {
         while matches!(
             self.peek(),
             Some('0'..='9') | Some('a'..='z') | Some('A'..='Z')
         ) {
             self.advance()?;
         }
-        let end_byte = self.current_byte;
 
-        let lexeme = self.source_slice(start_byte..=end_byte)?;
+        let lexeme = self.current_span_lexeme();
         let kind = match lexeme {
             "and" => TokenKind::And,
             "class" => TokenKind::Class,
@@ -254,39 +247,41 @@ impl<'scanner, 'src> ScannerIter<'scanner, 'src> {
 
         Ok(Token {
             kind,
-            // lexeme: Some(lexeme),
-            span: start..=(self.current_char - 1),
+            span: self.tracker.consume(),
         })
     }
 
-    fn error(&self, kind: LoxErrorKind) -> LoxError {
-        LoxError::new(kind, self.current_line, self.current_char.saturating_sub(1))
-            .with_path(self.scanner.location)
+    fn error(&self, kind: LoxErrorKind) -> LoxError<'src> {
+        LoxError::new(kind, self.source.clone(), self.tracker.get())
     }
 
-    fn source_slice(&self, range: RangeInclusive<usize>) -> LoxResult<&'src str> {
-        self.scanner
-            .source
-            .get(range)
-            .ok_or_else(|| self.error(LoxErrorKind::InvalidInput))
+    fn current_span_lexeme(&self) -> &'src str {
+        self.source.span(&self.tracker.get())
     }
 
-    fn advance(&mut self) -> LoxResult<char> {
-        let (idx, char) = self
+    fn advance(&mut self) -> LoxResult<'src, char> {
+        let (_idx, char) = self
             .iter
             .next()
             .ok_or_else(|| self.error(LoxErrorKind::UnexpectedEof))?;
-        self.current_char += 1;
-        self.current_byte = idx;
+
+        match char {
+            '\n' => {
+                self.tracker.advance_line(1);
+            }
+            _ => {}
+        }
+        self.tracker.advance_char(char);
+
         Ok(char)
     }
 
-    fn peek(&self) -> Option<char> {
-        self.iter.clone().peekable().next().map(|(_, c)| c)
+    fn peek(&mut self) -> Option<char> {
+        self.iter.peek().get().map(|(_, c)| *c)
     }
 
-    fn peek_nth(&self, n: usize) -> Option<char> {
-        self.iter.clone().peekable().nth(n).map(|(_, c)| c)
+    fn peek_2(&mut self) -> Option<char> {
+        self.iter.peek_2().map(|(_, c)| *c)
     }
 
     fn find(&mut self, expected: char) -> bool {
@@ -299,15 +294,12 @@ impl<'scanner, 'src> ScannerIter<'scanner, 'src> {
         }
     }
 
-    fn consume_until(&mut self, expected: char) -> LoxResult<bool> {
+    fn consume_until(&mut self, expected: char) -> LoxResult<'src, bool> {
         while let Some(peek) = self.peek() {
             if peek == expected {
                 return Ok(true);
             } else {
                 match self.advance() {
-                    Ok('\n') => {
-                        self.current_line += 1;
-                    }
                     Ok(_) => {}
                     Err(err) => return Err(err),
                 }
@@ -321,8 +313,8 @@ impl<'scanner, 'src> ScannerIter<'scanner, 'src> {
     }
 }
 
-impl<'scanner, 'src> Iterator for ScannerIter<'scanner, 'src> {
-    type Item = LoxResult<Token<'src>>;
+impl<'src> Iterator for Scanner<'src> {
+    type Item = LoxResult<'src, Token<'src>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.is_end() {
@@ -330,57 +322,61 @@ impl<'scanner, 'src> Iterator for ScannerIter<'scanner, 'src> {
                 return None;
             } else {
                 self.is_terminated = true;
-                return Some(Ok(Token::empty(
-                    TokenKind::Eof,
-                    self.scanner.source.len()..=self.scanner.source.len(),
-                )));
+                return Some(Ok(Token::empty(TokenKind::Eof, self.tracker.eof())));
             }
         }
         self.try_next_token().transpose()
     }
 }
 
-#[derive(Debug)]
-pub struct Scanner<'src> {
-    source: &'src str,
-    location: Option<&'src Path>,
-}
-
-impl<'src> Scanner<'src> {
-    pub fn new(source: &'src str, location: Option<&'src Path>) -> Self {
-        Self { source, location }
-    }
-
-    pub fn scan(&self) -> impl Iterator<Item = Result<Token<'src>, LoxError>> {
-        ScannerIter::new(&self)
-    }
-}
-
 #[cfg(test)]
-#[allow(unused)]
 mod tests {
     use super::*;
     use crate::error::LoxResultIter;
 
+    fn simple_token(kind: TokenKind<'_>, len: usize) -> Vec<Token<'_>> {
+        let end = len - 1;
+        vec![
+            Token {
+                kind,
+                span: SourceSpan {
+                    line: 0,
+                    char_range: 0..=end,
+                    bytes_range: 0..=end,
+                },
+            },
+            Token {
+                kind: TokenKind::Eof,
+                span: SourceSpan {
+                    line: 0,
+                    char_range: len..=len,
+                    bytes_range: len..=len,
+                },
+            },
+        ]
+    }
+
+    #[test]
+    fn scan_number() {
+        assert_eq!(
+            Scanner::scan(r#"300.003"#).to_vec(),
+            simple_token(TokenKind::Number(300.003), 7)
+        );
+        assert_eq!(
+            Scanner::scan(r#"69"#).to_vec(),
+            simple_token(TokenKind::Number(69.0), 2)
+        );
+        assert_ne!(
+            Scanner::scan(r#"200."#).to_vec(),
+            simple_token(TokenKind::Number(200.0), 4)
+        );
+    }
+
     #[test]
     fn scan_string() {
-        let tokens = Scanner::new(r#""string""#, None)
-            .scan()
-            .ignore_errors()
-            .collect::<Vec<_>>();
-
         assert_eq!(
-            tokens,
-            vec![
-                Token {
-                    kind: TokenKind::String("string"),
-                    span: 0..=7,
-                },
-                Token {
-                    kind: TokenKind::Eof,
-                    span: 8..=8
-                }
-            ]
-        )
+            Scanner::scan(r#""string""#).to_vec(),
+            simple_token(TokenKind::String("string"), 8)
+        );
     }
 }

@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use eyre::Result;
 use std::{io::Write, path::Path};
 use yansi::Paint;
@@ -5,7 +7,9 @@ use yansi::Paint;
 use crate::{error::LoxResultIter, scanner::Token};
 
 mod error;
+mod expr;
 mod scanner;
+mod source;
 
 fn main() -> Result<()> {
     use lexopt::prelude::*;
@@ -101,20 +105,28 @@ fn run_script<'src>(
     location: Option<&'src Path>,
     options: &RunnerOptions,
 ) -> Result<()> {
-    let source = script.as_ref();
-    let scanner = scanner::Scanner::new(source, location);
+    let source = source::Source {
+        script: script.as_ref(),
+        location,
+    };
 
     // consume iterator to process all of the errors before moving forward
-    let tokens = scanner.scan().handle_errors(source).collect::<Vec<_>>();
+    let tokens = scanner::Scanner::scan(source)
+        .handle_errors()
+        .collect::<Vec<_>>();
 
     if options.print_tokens {
-        print_tokens(tokens);
+        print_tokens(&tokens);
     }
 
     Ok(())
 }
 
-fn print_tokens<'src>(tokens: impl IntoIterator<Item = Token<'src>>) {
+fn print_tokens<'src, 'i, I>(tokens: I)
+where
+    I: IntoIterator<Item = &'i Token<'src>>,
+    'src: 'i,
+{
     for (i, token) in tokens.into_iter().enumerate() {
         println!(
             "{}: {}",
