@@ -169,7 +169,7 @@ impl<'src> Scanner<'src> {
         })
     }
 
-    fn error(&self, kind: LoxErrorKind) -> LoxError<'src> {
+    fn error(&self, kind: LoxErrorKind<'src>) -> LoxError<'src> {
         LoxError::new(kind, self.source.clone(), self.tracker.get())
     }
 
@@ -277,15 +277,15 @@ mod tests {
     #[test]
     fn scan_number() {
         assert_eq!(
-            Scanner::scan(r#"300.003"#).to_vec(),
+            Scanner::scan(r#"300.003"#).ignore_to_vec(),
             simple_token(TokenKind::Number(300.003), 7)
         );
         assert_eq!(
-            Scanner::scan(r#"69"#).to_vec(),
+            Scanner::scan(r#"69"#).ignore_to_vec(),
             simple_token(TokenKind::Number(69.0), 2)
         );
         assert_ne!(
-            Scanner::scan(r#"200."#).to_vec(),
+            Scanner::scan(r#"200."#).ignore_to_vec(),
             simple_token(TokenKind::Number(200.0), 4)
         );
     }
@@ -293,7 +293,7 @@ mod tests {
     #[test]
     fn scan_string() {
         assert_eq!(
-            Scanner::scan(r#""string""#).to_vec(),
+            Scanner::scan(r#""string""#).ignore_to_vec(),
             simple_token(TokenKind::String("string"), 8)
         );
     }

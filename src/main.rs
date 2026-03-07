@@ -4,10 +4,11 @@ use eyre::Result;
 use std::{io::Write, path::Path};
 use yansi::Paint;
 
-use crate::{error::LoxResultIter, token::Token};
+use crate::{ast::Expr, error::LoxResultIter, token::Token};
 
+mod ast;
 mod error;
-mod expr;
+mod parser;
 mod scanner;
 mod source;
 mod token;
@@ -26,6 +27,9 @@ fn main() -> Result<()> {
     while let Some(arg) = parser.next()? {
         match arg {
             Long("print-tokens") => {
+                app.options.print_tokens = true;
+            }
+            Long("print-ast") => {
                 app.options.print_tokens = true;
             }
             Value(f) if app.file.is_none() => {
@@ -93,11 +97,15 @@ impl App {
 #[derive(Debug)]
 pub struct RunnerOptions {
     print_tokens: bool,
+    print_ast: bool,
 }
 
 impl Default for RunnerOptions {
     fn default() -> Self {
-        Self { print_tokens: true }
+        Self {
+            print_tokens: true,
+            print_ast: true,
+        }
     }
 }
 
@@ -112,12 +120,14 @@ fn run_script<'src>(
     };
 
     // consume iterator to process all of the errors before moving forward
-    let tokens = scanner::Scanner::scan(source)
-        .handle_errors()
-        .collect::<Vec<_>>();
-
+    let tokens = scanner::Scanner::scan(&source).handle_to_vec();
     if options.print_tokens {
         print_tokens(&tokens);
+    }
+
+    let exprs = parser::Parser::parse(tokens, &source).handle_to_vec();
+    if options.print_ast {
+        print_ast(&exprs);
     }
 
     Ok(())
@@ -128,11 +138,33 @@ where
     I: IntoIterator<Item = &'i Token<'src>>,
     'src: 'i,
 {
+    println!(
+        "{} {:^5} {}",
+        "─".repeat(3).magenta(),
+        "Tokens".magenta(),
+        "─".repeat(3).magenta()
+    );
     for (i, token) in tokens.into_iter().enumerate() {
         println!(
             "{}: {}",
             format!("{i:02}").dim(),
             token.to_string().italic()
         );
+    }
+}
+
+fn print_ast<'src, 'i, I>(ast: I)
+where
+    I: IntoIterator<Item = &'i Expr<'src>>,
+    'src: 'i,
+{
+    println!(
+        "{} {:^5} {}",
+        "─".repeat(3).cyan(),
+        "AST".cyan(),
+        "─".repeat(3).cyan()
+    );
+    for (i, expr) in ast.into_iter().enumerate() {
+        println!("{}: {}", format!("{i:02}").dim(), expr.to_string().italic());
     }
 }

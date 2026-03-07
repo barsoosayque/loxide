@@ -1,37 +1,46 @@
 use yansi::Paint;
 
-use crate::source::{IntoSource, Source, SourceSpan};
+use crate::{
+    source::{IntoSource, Source, SourceSpan},
+    token::TokenKind,
+};
 
 pub type LoxResult<'src, T> = Result<T, LoxError<'src>>;
 
 #[derive(Debug)]
-pub enum LoxErrorKind {
+pub enum LoxErrorKind<'src> {
     UnexpectedCharacter(char),
+    UnexpectedEof,
+    UnexpectedToken(TokenKind<'src>),
+    ExpectedToken(TokenKind<'src>),
+    ExpectedExpr,
     UnterminatedString,
     InvalidNumber(String),
-    UnexpectedEof,
 }
 
-impl std::fmt::Display for LoxErrorKind {
+impl<'src> std::fmt::Display for LoxErrorKind<'src> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::UnexpectedCharacter(c) => f.write_fmt(format_args!("Unexpected character '{c}'")),
+            Self::UnexpectedEof => f.write_str("Unexpected end of file"),
+            Self::UnexpectedToken(k) => f.write_fmt(format_args!("Unexpected token '{k}'")),
+            Self::ExpectedToken(k) => f.write_fmt(format_args!("Expected '{k}'")),
+            Self::ExpectedExpr => f.write_str("Expected expression"),
             Self::UnterminatedString { .. } => f.write_fmt(format_args!("Unterminated string")),
             Self::InvalidNumber(s) => f.write_fmt(format_args!("Invalid number: '{s}'")),
-            Self::UnexpectedEof => f.write_str("Unexpected end of file"),
         }
     }
 }
 
 #[derive(Debug)]
 pub struct LoxError<'src> {
-    pub kind: LoxErrorKind,
+    pub kind: LoxErrorKind<'src>,
     pub source: Source<'src>,
     pub span: SourceSpan,
 }
 
 impl<'src> LoxError<'src> {
-    pub fn new(kind: LoxErrorKind, source: impl IntoSource<'src>, span: SourceSpan) -> Self {
+    pub fn new(kind: LoxErrorKind<'src>, source: impl IntoSource<'src>, span: SourceSpan) -> Self {
         Self {
             kind,
             source: source.into_source(),
@@ -89,10 +98,15 @@ impl std::fmt::Display for LoxError<'_> {
 }
 
 #[allow(unused)]
-pub trait LoxResultIter<T> {
+pub trait LoxResultIter<T>: Sized {
     fn handle_errors(self) -> impl Iterator<Item = T>;
     fn ignore_errors(self) -> impl Iterator<Item = T>;
-    fn to_vec(self) -> Vec<T>;
+    fn ignore_to_vec(self) -> Vec<T> {
+        self.ignore_errors().collect()
+    }
+    fn handle_to_vec(self) -> Vec<T> {
+        self.handle_errors().collect()
+    }
 }
 
 impl<'src, T, I: Iterator<Item = LoxResult<'src, T>>> LoxResultIter<T> for I {
@@ -123,9 +137,5 @@ impl<'src, T, I: Iterator<Item = LoxResult<'src, T>>> LoxResultIter<T> for I {
             Ok(value) => Some(value),
             Err(_err) => None,
         })
-    }
-
-    fn to_vec(self) -> Vec<T> {
-        self.ignore_errors().collect()
     }
 }

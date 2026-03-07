@@ -39,6 +39,12 @@ impl<'src> IntoSource<'src> for Source<'src> {
     }
 }
 
+impl<'a: 'src, 'src> IntoSource<'src> for &'a Source<'src> {
+    fn into_source(self) -> Source<'src> {
+        self.clone()
+    }
+}
+
 impl<'src> IntoSource<'src> for &'src str {
     fn into_source(self) -> Source<'src> {
         Source {
@@ -125,6 +131,14 @@ impl SourceSpanTracker {
 
     pub fn current_byte(&self) -> usize {
         self.current_byte
+    }
+
+    pub fn set(&mut self, span: SourceSpan) {
+        self.current_line = span.line;
+        self.start_char = span.char_start();
+        self.current_char = span.char_end().saturating_add(1);
+        self.start_byte = span.bytes_start();
+        self.current_byte = span.bytes_end().saturating_add(1);
     }
 
     pub fn advance_line(&mut self, lines: usize) {
