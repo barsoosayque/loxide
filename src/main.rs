@@ -4,12 +4,13 @@ use eyre::Result;
 use std::{io::Write, path::Path};
 use yansi::Paint;
 
-use crate::{error::LoxResultIter, scanner::Token};
+use crate::{error::LoxResultIter, token::Token};
 
 mod error;
 mod expr;
 mod scanner;
 mod source;
+mod token;
 
 fn main() -> Result<()> {
     use lexopt::prelude::*;
