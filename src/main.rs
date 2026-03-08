@@ -138,12 +138,12 @@ fn run_script<'src>(
         print_ast(&ast);
     }
 
-    let value = std::iter::once(Interpreter::interpret(ast, &source))
+    if let Some(value) = std::iter::once(Interpreter::interpret(ast, &source))
         .handle_errors()
         .next()
-        .unwrap_or_default();
-
-    println!("{}", value.to_string().italic().bright_black());
+    {
+        println!("{}", value.to_string().italic().bright_black());
+    }
 
     Ok(())
 }
