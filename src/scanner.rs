@@ -256,7 +256,7 @@ impl<'src> Iterator for Scanner<'src> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::LoxResultIter;
+    use crate::error::HandleLoxResultIter;
 
     fn simple_token(kind: TokenKind<'_>, len: usize) -> Vec<Token<'_>> {
         let end = len - 1;
@@ -283,15 +283,15 @@ mod tests {
     #[test]
     fn scan_number() {
         assert_eq!(
-            Scanner::scan(r#"300.003"#).ignore_to_vec(),
+            Scanner::scan(r#"300.003"#).process_silent(),
             simple_token(TokenKind::Number(300.003), 7)
         );
         assert_eq!(
-            Scanner::scan(r#"69"#).ignore_to_vec(),
+            Scanner::scan(r#"69"#).process_silent(),
             simple_token(TokenKind::Number(69.0), 2)
         );
         assert_ne!(
-            Scanner::scan(r#"200."#).ignore_to_vec(),
+            Scanner::scan(r#"200."#).process_silent(),
             simple_token(TokenKind::Number(200.0), 4)
         );
     }
@@ -299,7 +299,7 @@ mod tests {
     #[test]
     fn scan_string() {
         assert_eq!(
-            Scanner::scan(r#""string""#).ignore_to_vec(),
+            Scanner::scan(r#""string""#).process_silent(),
             simple_token(TokenKind::String("string"), 8)
         );
     }

@@ -139,8 +139,8 @@ where
             ));
         }
 
-        if let Some(Token { kind, .. }) = self.peek() {
-            let kind = kind.clone();
+        if let Some(_) = self.peek() {
+            let Token { kind, .. } = self.advance()?;
             Err(self.error(LoxErrorKind::UnexpectedToken(kind)))
         } else {
             Err(self.error(LoxErrorKind::ExpectedExpr))
@@ -158,11 +158,10 @@ where
 
         if let Some(Token { span, .. }) = self.peek().cloned() {
             self.stack.advance_to(span.clone());
-            self.tracker.set(span);
         } else {
             self.stack.advance_to(next.span.clone());
-            self.tracker.set(next.span.clone());
         }
+        self.tracker.set(next.span.clone());
 
         Ok(next)
     }

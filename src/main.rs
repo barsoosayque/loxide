@@ -6,7 +6,7 @@ use yansi::Paint;
 
 use crate::{
     ast::{Expr, ExprKind},
-    error::LoxResultIter,
+    error::{HandleLoxResult, HandleLoxResultIter},
     interpreter::Interpreter,
     parser::Parser,
     scanner::Scanner,
@@ -69,7 +69,7 @@ impl App {
     pub fn run(self) -> Result<()> {
         if let Some(file) = &self.file {
             println!(
-                "• {} running {}",
+                "• {} running {}\n",
                 "loxide".yellow(),
                 file.blue().underline()
             );
@@ -79,7 +79,7 @@ impl App {
             return run_script(&script, Some(file), &self.options);
         } else {
             println!(
-                "• {} in {} mode",
+                "• {} in {} mode\n",
                 "loxide".yellow(),
                 "REPL".green().underline()
             );
@@ -128,21 +128,30 @@ fn run_script<'src>(
         location,
     };
 
-    let tokens = Scanner::scan(&source).handle_to_vec();
+    let (tokens, scanner_errors) = Scanner::scan(&source).process();
     if options.print_tokens {
         print_tokens(&tokens);
     }
 
-    let ast = Parser::parse(tokens, &source).handle_to_vec();
+    let (ast, parser_errors) = Parser::parse(tokens, &source).process();
     if options.print_ast {
         print_ast(&ast);
     }
 
-    if let Some(value) = std::iter::once(Interpreter::interpret(ast, &source))
-        .handle_errors()
-        .next()
-    {
-        println!("{}", value.to_string().italic().bright_black());
+    let total_errors = scanner_errors + parser_errors;
+    if total_errors > 0 {
+        println!(
+            "\n{}  Parsing errors: {}",
+            "🮮".bright_red(),
+            total_errors.to_string().bright_white(),
+        );
+        return Ok(());
+    }
+
+    if let Some(value) = Interpreter::interpret(ast, &source).report_err() {
+        println!("{} {}", "•".green().dim(), value.to_string().green());
+    } else {
+        println!("\n{}  Runtime errors: {}", "🮮".dim(), 1.to_string());
     }
 
     Ok(())

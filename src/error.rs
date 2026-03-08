@@ -59,25 +59,6 @@ impl<'src> LoxError<'src> {
             span,
         }
     }
-
-    // pub fn with_location(mut self, location: Option<impl Into<String>>) -> Self {
-    //     self.location = location.map(Into::into);
-    //     self
-    // }
-
-    // pub fn with_path(self, location: Option<impl AsRef<Path>>) -> Self {
-    //     self.with_location(location.map(|p| p.as_ref().to_string_lossy().into_owned()))
-    // }
-
-    // pub fn span(&self) -> RangeInclusive<usize> {
-    //     match self.kind {
-    //         LoxErrorKind::InvalidNumber { start, .. }
-    //         | LoxErrorKind::UnterminatedString { start } => start..=self.column,
-    //         LoxErrorKind::UnexpectedCharacter { .. }
-    //         | LoxErrorKind::UnexpectedEof
-    //         | LoxErrorKind::InvalidInput => self.column..=self.column,
-    //     }
-    // }
 }
 
 impl std::error::Error for LoxError<'_> {}
@@ -109,45 +90,78 @@ impl std::fmt::Display for LoxError<'_> {
     }
 }
 
-#[allow(unused)]
-pub trait LoxResultIter<T>: Sized {
-    fn handle_errors(self) -> impl Iterator<Item = T>;
-    fn ignore_errors(self) -> impl Iterator<Item = T>;
-    fn ignore_to_vec(self) -> Vec<T> {
-        self.ignore_errors().collect()
-    }
-    fn handle_to_vec(self) -> Vec<T> {
-        self.handle_errors().collect()
-    }
+pub trait HandleLoxResult<T>: Sized {
+    fn report_err(self) -> Option<T>;
 }
 
-impl<'src, T, I: Iterator<Item = LoxResult<'src, T>>> LoxResultIter<T> for I {
-    fn handle_errors(self) -> impl Iterator<Item = T> {
-        self.filter_map(|r| match r {
+impl<'src, T> HandleLoxResult<T> for LoxResult<'src, T> {
+    fn report_err(self) -> Option<T> {
+        match self {
             Ok(value) => Some(value),
             Err(err) => {
                 println!(
-                    "{} {}\n  {}{}\n  {}",
-                    "✗".red().bold(),
+                    "{} {}\n{} {}{}\n{} {}",
+                    "▓".red().bold(),
                     err.source
                         .script
                         .lines()
                         .nth(err.span.line)
                         .unwrap_or("<error>")
                         .italic(),
+                    "░".red().bold(),
                     " ".repeat(err.span.char_start()),
                     "~".repeat(err.span.char_len() + 1).italic().yellow(),
+                    "░".red().bold(),
                     err.to_string().red().bold(),
                 );
                 None
             }
-        })
+        }
+    }
+}
+
+pub trait HandleLoxResultIter<T>: Sized {
+    fn report_err(self) -> impl Iterator<Item = T>;
+    fn ignore_err(self) -> impl Iterator<Item = T>;
+    fn process_silent(self) -> (Vec<T>, usize);
+    fn process(self) -> (Vec<T>, usize);
+}
+
+impl<'src, T, I: Iterator<Item = LoxResult<'src, T>>> HandleLoxResultIter<T> for I {
+    fn report_err(self) -> impl Iterator<Item = T> {
+        self.filter_map(HandleLoxResult::report_err)
     }
 
-    fn ignore_errors(self) -> impl Iterator<Item = T> {
+    fn ignore_err(self) -> impl Iterator<Item = T> {
         self.filter_map(|r| match r {
             Ok(value) => Some(value),
             Err(_err) => None,
         })
+    }
+
+    fn process_silent(self) -> (Vec<T>, usize) {
+        let mut errors = 0_usize;
+
+        let v = self
+            .filter_map(|r| {
+                errors += if r.is_err() { 1 } else { 0 };
+                r.ok()
+            })
+            .collect();
+
+        (v, errors)
+    }
+
+    fn process(self) -> (Vec<T>, usize) {
+        let mut errors = 0_usize;
+
+        let v = self
+            .filter_map(|r| {
+                errors += if r.is_err() { 1 } else { 0 };
+                HandleLoxResult::report_err(r)
+            })
+            .collect();
+
+        (v, errors)
     }
 }
