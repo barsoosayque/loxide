@@ -218,6 +218,6 @@ impl<'src> Interpreter<'src> {
     }
 
     cast!(cast_number => f64, try_into_number in LoxValue::Number(v) => v, as NUMBER_KIND);
-    cast!(cast_string => Cow<'src, str>, try_into_string in LoxValue::String(v) => v, as STRING_KIND);
     cast!(cast_boolean => bool, try_into_boolean in LoxValue::Boolean(v) => v, as BOOLEAN_KIND);
+    // cast!(cast_string => Cow<'src, str>, try_into_string in LoxValue::String(v) => v, as STRING_KIND);
 }

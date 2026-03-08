@@ -1,4 +1,4 @@
-use std::{iter::Peekable, path::Path};
+use std::iter::Peekable;
 
 use crate::{
     ast::{Expr, ExprKind},

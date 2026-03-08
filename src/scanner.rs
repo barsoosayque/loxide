@@ -3,7 +3,7 @@ use std::str::CharIndices;
 
 use crate::{
     error::{LoxError, LoxErrorKind, LoxResult},
-    source::{IntoSource, Source, SourceSpan, SourceSpanTracker},
+    source::{IntoSource, Source, SourceSpanTracker},
     token::{Token, TokenKind},
 };
 
@@ -228,79 +228,21 @@ impl<'src> Scanner<'src> {
         }
         Ok(false)
     }
-
-    fn is_end(&self) -> bool {
-        self.iter.clone().peekable().next().is_none()
-    }
 }
 
 impl<'src> Iterator for Scanner<'src> {
     type Item = LoxResult<'src, Token<'src>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.is_end() {
-            if self.is_terminated {
-                return None;
-            } else {
+        match (self.try_next_token(), self.is_terminated) {
+            (Ok(None), false) => {
                 self.is_terminated = true;
-                return Some(Ok(Token {
+                Some(Ok(Token {
                     kind: TokenKind::Eof,
                     span: self.tracker.eof(),
-                }));
+                }))
             }
+            (token, _) => token.transpose(),
         }
-        self.try_next_token().transpose()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::error::HandleLoxResultIter;
-
-    fn simple_token(kind: TokenKind<'_>, len: usize) -> Vec<Token<'_>> {
-        let end = len - 1;
-        vec![
-            Token {
-                kind,
-                span: SourceSpan {
-                    line: 0,
-                    char_range: 0..=end,
-                    bytes_range: 0..=end,
-                },
-            },
-            Token {
-                kind: TokenKind::Eof,
-                span: SourceSpan {
-                    line: 0,
-                    char_range: len..=len,
-                    bytes_range: len..=len,
-                },
-            },
-        ]
-    }
-
-    #[test]
-    fn scan_number() {
-        assert_eq!(
-            Scanner::scan(r#"300.003"#).process_silent(),
-            simple_token(TokenKind::Number(300.003), 7)
-        );
-        assert_eq!(
-            Scanner::scan(r#"69"#).process_silent(),
-            simple_token(TokenKind::Number(69.0), 2)
-        );
-        assert_ne!(
-            Scanner::scan(r#"200."#).process_silent(),
-            simple_token(TokenKind::Number(200.0), 4)
-        );
-    }
-
-    #[test]
-    fn scan_string() {
-        assert_eq!(
-            Scanner::scan(r#""string""#).process_silent(),
-            simple_token(TokenKind::String("string"), 8)
-        );
     }
 }

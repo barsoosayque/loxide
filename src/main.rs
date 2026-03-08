@@ -4,7 +4,7 @@ use eyre::Result;
 use std::{io::Write, path::Path};
 use yansi::Paint;
 
-use crate::{
+use loxide::{
     ast::{Expr, ExprKind},
     error::{HandleLoxResult, HandleLoxResultIter},
     interpreter::Interpreter,
@@ -13,14 +13,6 @@ use crate::{
     source::Source,
     token::Token,
 };
-
-mod ast;
-mod error;
-mod interpreter;
-mod parser;
-mod scanner;
-mod source;
-mod token;
 
 fn main() -> Result<()> {
     use lexopt::prelude::*;
