@@ -5,7 +5,7 @@ use std::{io::Write, path::Path};
 use yansi::Paint;
 
 use loxide::{
-    ast::{Expr, ExprKind},
+    ast::{Expr, ExprKind, Stmt},
     error::{HandleLoxResult, HandleLoxResultIter},
     interpreter::Interpreter,
     parser::Parser,
@@ -140,7 +140,7 @@ fn run_script<'src>(
         return Ok(());
     }
 
-    if let Some(value) = Interpreter::interpret(ast, &source).report_err() {
+    if let Some(value) = Interpreter::execute_ast(ast, &source).report_err() {
         println!("{} {}", "•".green().dim(), value.to_string().green());
     } else {
         println!("\n{}  Runtime errors: {}", "🮮".dim(), 1.to_string());
@@ -171,7 +171,7 @@ where
 
 fn print_ast<'src, 'i, I>(ast: I)
 where
-    I: IntoIterator<Item = &'i Expr<'src>>,
+    I: IntoIterator<Item = &'i Stmt<'src>>,
     'src: 'i,
 {
     println!(

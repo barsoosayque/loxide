@@ -1,5 +1,5 @@
 use loxide::{
-    ast::{Expr, ExprKind},
+    ast::{Expr, ExprKind, Stmt, StmtKind},
     error::HandleLoxResultIter,
     parser::Parser,
     source::SourceSpan,
@@ -17,12 +17,20 @@ fn t(kind: TokenKind<'static>) -> Token<'static> {
     }
 }
 
-fn parse(tokens: Vec<Token<'_>>) -> Vec<Expr<'_>> {
+fn parse(tokens: Vec<Token<'_>>) -> Vec<Stmt<'_>> {
     Parser::parse(tokens, "").process_silent().0
 }
 
+fn parse_expr(tokens: Vec<Token<'_>>) -> Expr<'_> {
+    let stmt = parse(tokens).into_iter().next().unwrap();
+    match stmt.kind {
+        StmtKind::ExprReturn(expr) => *expr,
+        _ => panic!("Expected ExprReturn statement"),
+    }
+}
+
 fn parse_single(tokens: Vec<Token<'_>>) -> Expr<'_> {
-    parse(tokens).into_iter().next().unwrap()
+    parse_expr(tokens)
 }
 
 #[test]
@@ -285,14 +293,16 @@ fn parse_binary() {
 
 #[test]
 fn parse_expressions() {
-    let exprs = parse(vec![
+    let stmts = parse(vec![
         t(TokenKind::Number(1.0)),
+        t(TokenKind::Semicolon),
         t(TokenKind::Number(2.0)),
+        t(TokenKind::Semicolon),
         t(TokenKind::Number(3.0)),
         t(TokenKind::Eof),
     ]);
-    assert_eq!(exprs.len(), 3);
-    assert!(matches!(exprs[0].kind, ExprKind::LitNumber(1.0)));
-    assert!(matches!(exprs[1].kind, ExprKind::LitNumber(2.0)));
-    assert!(matches!(exprs[2].kind, ExprKind::LitNumber(3.0)));
+    assert_eq!(stmts.len(), 3);
+    assert!(matches!(stmts[0].kind, StmtKind::Expr(_)));
+    assert!(matches!(stmts[1].kind, StmtKind::Expr(_)));
+    assert!(matches!(stmts[2].kind, StmtKind::ExprReturn(_)));
 }

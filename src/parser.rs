@@ -1,7 +1,7 @@
 use std::iter::Peekable;
 
 use crate::{
-    ast::{Expr, ExprKind},
+    ast::{Expr, ExprKind, Stmt, StmtKind},
     error::{LoxError, LoxErrorKind, LoxResult},
     source::{IntoSource, Source, SourceSpanTracker, SourceSpanTrackerStack},
     token::{Token, TokenKind},
@@ -70,6 +70,31 @@ where
             tracker: SourceSpanTracker::default(),
             source: source.into_source(),
         }
+    }
+
+    pub fn stmt(&mut self) -> LoxResult<'src, Stmt<'src>> {
+        self.stack.push(self.stack.get());
+
+        if let Some(_) = expect!(self, TokenKind::Print) {
+            let expr = self.expr()?;
+            self.consume(TokenKind::Semicolon)?;
+            return Ok(Stmt::new(StmtKind::Print(Box::new(expr)), self.stack.pop()));
+        }
+
+        let expr = self.expr()?;
+        if let Some(Token {
+            kind: TokenKind::Eof,
+            ..
+        }) = self.peek()
+        {
+            return Ok(Stmt::new(
+                StmtKind::ExprReturn(Box::new(expr)),
+                self.stack.pop(),
+            ));
+        }
+
+        self.consume(TokenKind::Semicolon)?;
+        return Ok(Stmt::new(StmtKind::Expr(Box::new(expr)), self.stack.pop()));
     }
 
     pub fn expr(&mut self) -> LoxResult<'src, Expr<'src>> {
@@ -227,14 +252,14 @@ impl<'src, I> Iterator for Parser<'src, I>
 where
     I: Iterator<Item = Token<'src>>,
 {
-    type Item = LoxResult<'src, Expr<'src>>;
+    type Item = LoxResult<'src, Stmt<'src>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.is_end() {
             return None;
         }
 
-        Some(self.expr().inspect_err(|err| {
+        Some(self.stmt().inspect_err(|err| {
             match err.kind {
                 LoxErrorKind::UnexpectedEof => {
                     // unrecoverable

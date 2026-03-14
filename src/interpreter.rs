@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use crate::{
-    ast::{Expr, ExprKind},
+    ast::{Expr, ExprKind, Stmt, StmtKind},
     error::{LoxError, LoxErrorKind, LoxResult},
     source::{IntoSource, Source, SourceSpan},
     token::TokenKind,
@@ -104,7 +104,7 @@ pub struct Interpreter<'src> {
 }
 
 impl<'src> Interpreter<'src> {
-    pub fn interpret<T: IntoIterator<Item = Expr<'src>>>(
+    pub fn execute_ast<T: IntoIterator<Item = Stmt<'src>>>(
         ast: T,
         source: impl IntoSource<'src>,
     ) -> LoxResult<'src, LoxValue<'src>> {
@@ -112,12 +112,26 @@ impl<'src> Interpreter<'src> {
             source: source.into_source(),
         };
 
-        // TODO: currently only the last expr is interpreted
-        let Some(expr) = ast.into_iter().last() else {
-            return Ok(LoxValue::Nil);
-        };
+        let mut value = LoxValue::Nil;
+        for stmt in ast {
+            value = interpreter.execute(&stmt)?;
+        }
 
-        interpreter.eval(&expr)
+        Ok(value)
+    }
+
+    fn execute(&mut self, stmt: &Stmt<'src>) -> LoxResult<'src, LoxValue<'src>> {
+        match &stmt.kind {
+            StmtKind::Expr(expr) => {
+                let _value = self.eval(&expr)?;
+            }
+            StmtKind::Print(expr) => {
+                let value = self.eval(expr)?;
+                println!("{value}");
+            }
+            StmtKind::ExprReturn(expr) => return self.eval(&expr),
+        }
+        Ok(LoxValue::Nil)
     }
 
     fn eval(&mut self, expr: &Expr<'src>) -> LoxResult<'src, LoxValue<'src>> {

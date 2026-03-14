@@ -1,22 +1,32 @@
+use std::marker::PhantomData;
+
 use display_tree::{AsTree, DisplayTree, to_display_tree_ref::ToDisplayTreeRef};
 
 use crate::{source::SourceSpan, token::TokenKind};
 
+pub type Expr<'src> = AstPart<'src, ExprKind<'src>>;
+pub type Stmt<'src> = AstPart<'src, StmtKind<'src>>;
+
 #[derive(Debug, Clone)]
-pub struct Expr<'src> {
-    pub kind: ExprKind<'src>,
+pub struct AstPart<'src, T> {
+    pub kind: T,
     pub span: SourceSpan,
+    _phantom: PhantomData<&'src ()>,
 }
 
-impl<'src> Expr<'src> {
-    pub fn new(kind: ExprKind<'src>, span: SourceSpan) -> Self {
-        Self { kind, span }
+impl<T> AstPart<'_, T> {
+    pub fn new(kind: T, span: SourceSpan) -> Self {
+        Self {
+            kind,
+            span,
+            _phantom: PhantomData,
+        }
     }
 }
 
-impl std::fmt::Display for Expr<'_> {
+impl<T: std::fmt::Display> std::fmt::Display for AstPart<'_, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Expr")?;
+        f.write_str("AstPart")?;
         if self.span.is_char() {
             f.write_fmt(format_args!("@{}", self.span.char_start()))?;
         } else {
@@ -70,6 +80,19 @@ pub enum ExprKind<'src> {
 }
 
 impl std::fmt::Display for ExprKind<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        AsTree::new(self).fmt(f)
+    }
+}
+
+#[derive(DisplayTree, Debug, Clone)]
+pub enum StmtKind<'src> {
+    Expr(#[tree] Box<Expr<'src>>),
+    ExprReturn(#[tree] Box<Expr<'src>>),
+    Print(#[tree] Box<Expr<'src>>),
+}
+
+impl std::fmt::Display for StmtKind<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         AsTree::new(self).fmt(f)
     }
