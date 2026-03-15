@@ -3,7 +3,7 @@ use std::iter::Peekable;
 use crate::{
     ast::{Expr, ExprKind, Stmt, StmtKind},
     error::{LoxError, LoxErrorKind, LoxResult},
-    source::{IntoSource, Source, SourceSpan, SourceSpanTracker, SourceSpanTrackerStack},
+    source::{IntoSource, Source, SourceSpan, SourceSpanTrackerStack},
     token::{Token, TokenKind},
 };
 
@@ -13,7 +13,6 @@ where
 {
     source: Source<'src>,
     stack: SourceSpanTrackerStack,
-    tracker: SourceSpanTracker,
     tokens: Peekable<I>,
 }
 
@@ -96,7 +95,6 @@ where
         Self {
             tokens: tokens.into_iter().peekable(),
             stack: SourceSpanTrackerStack::default(),
-            tracker: SourceSpanTracker::default(),
             source: source.into_source(),
         }
     }
@@ -128,6 +126,26 @@ where
     }
 
     pub fn stmt(&mut self) -> LoxResult<'src, Stmt<'src>> {
+        if let Some(_) = expect!(self, TokenKind::If) {
+            consume!(self, TokenKind::LeftParen, "'(' after if")?;
+            let condition = self.expr()?;
+            consume!(self, TokenKind::RightParen, "')' after if")?;
+
+            let then = self.stmt()?;
+            let or_else = expect!(self, TokenKind::Else)
+                .map(|_| self.stmt())
+                .transpose()?;
+
+            return Ok(Stmt::new(
+                StmtKind::Conditional {
+                    condition: Box::new(condition),
+                    then: Box::new(then),
+                    or_else: or_else.map(Box::new),
+                },
+                self.stack.pop(),
+            ));
+        }
+
         if let Some(_) = expect!(self, TokenKind::Print) {
             let expr = self.expr()?;
             consume!(self, TokenKind::Semicolon, "';' after print statement")?;
@@ -186,7 +204,7 @@ where
                     );
                 }
                 _ => {
-                    return Err(self.error(LoxErrorKind::InvalidAssignmentTarget));
+                    return Err(self.error_for(LoxErrorKind::InvalidAssignmentTarget, expr.span));
                 }
             }
         }
@@ -253,8 +271,8 @@ where
         }
 
         if let Some(_) = self.peek() {
-            let Token { kind, .. } = self.advance()?;
-            Err(self.error(LoxErrorKind::UnexpectedToken(kind)))
+            let Token { kind, span } = self.advance()?;
+            Err(self.error_for(LoxErrorKind::UnexpectedToken(kind), span))
         } else {
             Err(self.error_next_char(LoxErrorKind::ExpectedExpr))
         }
@@ -274,7 +292,6 @@ where
         } else {
             self.stack.advance_to(next.span.clone());
         }
-        self.tracker.set(next.span.clone());
 
         Ok(next)
     }
@@ -309,12 +326,12 @@ where
         }
     }
 
-    fn error(&self, kind: LoxErrorKind<'src>) -> LoxError<'src> {
-        LoxError::new(kind, self.source.clone(), self.tracker.get())
+    fn error_for(&self, kind: LoxErrorKind<'src>, span: SourceSpan) -> LoxError<'src> {
+        LoxError::new(kind, self.source.clone(), span)
     }
 
     fn error_next_char(&self, kind: LoxErrorKind<'src>) -> LoxError<'src> {
-        let span = self.tracker.get();
+        let span = self.stack.get();
         let span = SourceSpan {
             line: span.line,
             char_range: (span.char_end().saturating_add(1)..=span.char_end().saturating_add(1)),

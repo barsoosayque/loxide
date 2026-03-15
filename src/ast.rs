@@ -57,6 +57,11 @@ pub enum StmtKind<'src> {
     Expr(Box<Expr<'src>>),
     ExprReturn(Box<Expr<'src>>),
     Print(Box<Expr<'src>>),
+    Conditional {
+        condition: Box<Expr<'src>>,
+        then: Box<Stmt<'src>>,
+        or_else: Option<Box<Stmt<'src>>>,
+    },
 }
 
 pub trait DisplayTree {
@@ -185,6 +190,25 @@ impl DisplayTree for Stmt<'_> {
                 }
                 write!(f, "\n{t}└── ")?;
                 stmts.last().unwrap().format_tree(f, indent + 1)?;
+                Ok(())
+            }
+            StmtKind::Conditional {
+                condition,
+                then,
+                or_else,
+            } => {
+                write!(f, "Conditional{span}")?;
+                write!(f, "\n{t}├── if ")?;
+                condition.format_tree(f, indent + 1)?;
+                if let Some(or_else) = or_else {
+                    write!(f, "\n{t}├── then ")?;
+                    then.format_tree(f, indent + 1)?;
+                    write!(f, "\n{t}└── else")?;
+                    or_else.format_tree(f, indent + 1)?;
+                } else {
+                    write!(f, "\n{t}└── then")?;
+                    then.format_tree(f, indent + 1)?;
+                }
                 Ok(())
             }
         }

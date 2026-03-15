@@ -1,0 +1,7 @@
+---
+source: tests/snapshots.rs
+assertion_line: 35
+expression: run_lox(file)
+---
+"yes"
+"other"

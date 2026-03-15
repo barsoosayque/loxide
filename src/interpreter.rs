@@ -154,6 +154,21 @@ impl<'env, 'src> Interpreter<'env, 'src> {
                 println!("{value}");
             }
             StmtKind::ExprReturn(expr) => return self.eval(&expr),
+            StmtKind::Conditional {
+                condition,
+                then,
+                or_else,
+            } => {
+                let condition_value = self.eval(&condition)?;
+                let condition = self.cast_boolean(condition_value, condition.span.clone())?;
+                if condition {
+                    let then_value = self.execute(&then)?;
+                    return Ok(then_value);
+                } else if let Some(or_else) = or_else {
+                    let or_else_value = self.execute(&or_else)?;
+                    return Ok(or_else_value);
+                }
+            }
         }
         Ok(LoxValue::Nil)
     }

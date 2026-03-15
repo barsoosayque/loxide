@@ -1,0 +1,11 @@
+if (10 > 5) {
+	print "yes";
+}
+
+if (false) {
+	print "false";
+} else if (-10 == nil) {
+	print "nil wins";
+} else {
+	print "other";
+}

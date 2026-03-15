@@ -32,3 +32,4 @@ macro_rules! test_snapshot {
 
 test_snapshot!(blocks);
 test_snapshot!(variables);
+test_snapshot!(conditional);
