@@ -1,7 +1,5 @@
 use std::marker::PhantomData;
 
-use display_tree::{AsTree, DisplayTree, to_display_tree_ref::ToDisplayTreeRef};
-
 use crate::{source::SourceSpan, token::TokenKind};
 
 pub type Expr<'src> = AstPart<'src, ExprKind<'src>>;
@@ -24,76 +22,171 @@ impl<T> AstPart<'_, T> {
     }
 }
 
-impl<T: std::fmt::Display> std::fmt::Display for AstPart<'_, T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("AstPart")?;
-        if self.span.is_char() {
-            f.write_fmt(format_args!("@{}", self.span.char_start()))?;
-        } else {
-            f.write_fmt(format_args!(
-                "@{}..{}",
-                self.span.char_start(),
-                self.span.char_end()
-            ))?;
-        }
-
-        f.write_fmt(format_args!("\n{}", self.kind))?;
-
-        Ok(())
-    }
-}
-
-impl<'src> ToDisplayTreeRef<ExprKind<'src>> for Box<Expr<'src>> {
-    fn to_display_tree(&self) -> &ExprKind<'src> {
-        &self.kind
-    }
-}
-
-// `Box<Expr>` ??? In my epic blazingly fast AST ???
-// Surely rustc *has* something better:
-// https://github.com/rust-lang/rust/blob/765fd2d8c77a570e7069d9f30bb6d3d8fe437f9e/compiler/rustc_ast/src/ast.rs#L1739
-// Oh... oh, ok.
-#[derive(DisplayTree, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub enum ExprKind<'src> {
     Binary {
-        #[tree]
         left: Box<Expr<'src>>,
-        #[node_label]
         op: TokenKind<'src>,
-        #[tree]
         right: Box<Expr<'src>>,
     },
     Unary {
-        #[node_label]
         op: TokenKind<'src>,
-        #[tree]
         right: Box<Expr<'src>>,
     },
     Grouping {
-        #[tree]
         inner: Box<Expr<'src>>,
     },
+    Assign {
+        id: &'src str,
+        value: Box<Expr<'src>>,
+    },
+    Var(&'src str),
     LitString(&'src str),
     LitNumber(f64),
     LitBoolean(bool),
     LitNil,
 }
 
-impl std::fmt::Display for ExprKind<'_> {
+#[derive(Debug, Clone)]
+pub enum StmtKind<'src> {
+    VariableDecl {
+        id: &'src str,
+        init: Option<Box<Expr<'src>>>,
+    },
+    Block(Vec<Box<Stmt<'src>>>),
+    Expr(Box<Expr<'src>>),
+    ExprReturn(Box<Expr<'src>>),
+    Print(Box<Expr<'src>>),
+}
+
+pub trait DisplayTree {
+    fn format_tree(&self, f: &mut std::fmt::Formatter<'_>, indent: usize) -> std::fmt::Result;
+}
+
+impl std::fmt::Display for Expr<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        AsTree::new(self).fmt(f)
+        self.format_tree(f, 0)
     }
 }
 
-#[derive(DisplayTree, Debug, Clone)]
-pub enum StmtKind<'src> {
-    Expr(#[tree] Box<Expr<'src>>),
-    ExprReturn(#[tree] Box<Expr<'src>>),
-    Print(#[tree] Box<Expr<'src>>),
+impl std::fmt::Display for Stmt<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.format_tree(f, 0)
+    }
 }
 
-impl std::fmt::Display for StmtKind<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        AsTree::new(self).fmt(f)
+impl DisplayTree for Expr<'_> {
+    fn format_tree(&self, f: &mut std::fmt::Formatter<'_>, indent: usize) -> std::fmt::Result {
+        let t = "  ".repeat(indent);
+        let span = if self.span.is_char() {
+            format!("@{}", self.span.char_start())
+        } else {
+            format!("@{}..{}", self.span.char_start(), self.span.char_end())
+        };
+        match &self.kind {
+            ExprKind::Binary { left, op, right } => {
+                write!(f, "Binary{span} {op}")?;
+                write!(f, "\n{t}├── ")?;
+                left.format_tree(f, indent + 1)?;
+                write!(f, "\n{t}└── ")?;
+                right.format_tree(f, indent + 1)?;
+                Ok(())
+            }
+            ExprKind::Unary { op, right } => {
+                write!(f, "Unary{span} {op}")?;
+                write!(f, "\n{t}└── ")?;
+                right.format_tree(f, indent + 1)?;
+                Ok(())
+            }
+            ExprKind::Grouping { inner } => {
+                write!(f, "Grouping{span}: ")?;
+                inner.format_tree(f, indent + 1)?;
+                Ok(())
+            }
+            ExprKind::Assign { id, value } => {
+                write!(f, "Assign{span} {id}")?;
+                write!(f, "\n{t}└── ")?;
+                value.format_tree(f, indent + 1)?;
+                Ok(())
+            }
+            ExprKind::LitString(s) => {
+                write!(f, "\"{s}\"{span}")?;
+                Ok(())
+            }
+            ExprKind::LitNumber(n) => {
+                write!(f, "{n}{span}")?;
+                Ok(())
+            }
+            ExprKind::LitBoolean(b) => {
+                write!(f, "{b}{span}")?;
+                Ok(())
+            }
+            ExprKind::LitNil => {
+                write!(f, "nil{span}")?;
+                Ok(())
+            }
+            ExprKind::Var(id) => {
+                write!(f, "Var({id}){span}")?;
+                Ok(())
+            }
+        }
+    }
+}
+
+impl DisplayTree for Stmt<'_> {
+    fn format_tree(&self, f: &mut std::fmt::Formatter<'_>, indent: usize) -> std::fmt::Result {
+        let t = "  ".repeat(indent);
+        let span = if self.span.is_char() {
+            format!("@{}", self.span.char_start())
+        } else {
+            format!("@{}..{}", self.span.char_start(), self.span.char_end())
+        };
+        match &self.kind {
+            StmtKind::VariableDecl { id, init } => {
+                write!(f, "VariableDecl{span}: {id}")?;
+                if let Some(init) = init {
+                    write!(f, "\n{t}└── ")?;
+                    init.format_tree(f, indent + 1)?;
+                }
+                Ok(())
+            }
+            StmtKind::Expr(expr) => {
+                write!(f, "Expr{span}: ")?;
+                write!(f, "\n{t}└── ")?;
+                expr.format_tree(f, indent + 1)?;
+                Ok(())
+            }
+            StmtKind::ExprReturn(expr) => {
+                write!(f, "ExprReturn{span}: ")?;
+                write!(f, "\n{t}└── ")?;
+                expr.format_tree(f, indent + 1)?;
+                Ok(())
+            }
+            StmtKind::Print(expr) => {
+                write!(f, "Print{span}: ")?;
+                write!(f, "\n{t}└── ")?;
+                expr.format_tree(f, indent + 1)?;
+                Ok(())
+            }
+            StmtKind::Block(stmts) => {
+                write!(f, "Block{span}")?;
+                if stmts.is_empty() {
+                    write!(f, "\n{t}└── <empty>")?;
+                    return Ok(());
+                }
+                if stmts.len() > 1 {
+                    for (i, stmt) in stmts.iter().enumerate() {
+                        if i == (stmts.len() - 1) {
+                            continue;
+                        }
+                        write!(f, "\n{t}├── ")?;
+                        stmt.format_tree(f, indent + 1)?;
+                    }
+                }
+                write!(f, "\n{t}└── ")?;
+                stmts.last().unwrap().format_tree(f, indent + 1)?;
+                Ok(())
+            }
+        }
     }
 }

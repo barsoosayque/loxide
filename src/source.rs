@@ -3,7 +3,7 @@ use std::{
     path::Path,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct Source<'src> {
     pub script: &'src str,
     pub location: Option<&'src Path>,
@@ -39,7 +39,7 @@ impl<'src> IntoSource<'src> for Source<'src> {
     }
 }
 
-impl<'a: 'src, 'src> IntoSource<'src> for &'a Source<'src> {
+impl<'a, 'src> IntoSource<'src> for &'a Source<'src> {
     fn into_source(self) -> Source<'src> {
         self.clone()
     }

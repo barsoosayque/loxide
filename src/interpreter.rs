@@ -2,6 +2,7 @@ use std::borrow::Cow;
 
 use crate::{
     ast::{Expr, ExprKind, Stmt, StmtKind},
+    environment::Environment,
     error::{LoxError, LoxErrorKind, LoxResult},
     source::{IntoSource, Source, SourceSpan},
     token::TokenKind,
@@ -99,22 +100,29 @@ macro_rules! cast {
     };
 }
 
-pub struct Interpreter<'src> {
+#[derive(Debug)]
+pub struct Interpreter<'env, 'src> {
     source: Source<'src>,
+    env: &'env mut Environment<'src>,
 }
 
-impl<'src> Interpreter<'src> {
-    pub fn execute_ast<T: IntoIterator<Item = Stmt<'src>>>(
+impl<'env, 'src> Interpreter<'env, 'src> {
+    pub fn execute_many<T>(
         ast: T,
         source: impl IntoSource<'src>,
-    ) -> LoxResult<'src, LoxValue<'src>> {
-        let mut interpreter = Self {
+        env: &'env mut Environment<'src>,
+    ) -> LoxResult<'src, LoxValue<'src>>
+    where
+        T: IntoIterator<Item = Stmt<'src>>,
+    {
+        let mut int = Self {
             source: source.into_source(),
+            env,
         };
 
         let mut value = LoxValue::Nil;
         for stmt in ast {
-            value = interpreter.execute(&stmt)?;
+            value = int.execute(&stmt)?;
         }
 
         Ok(value)
@@ -122,8 +130,24 @@ impl<'src> Interpreter<'src> {
 
     fn execute(&mut self, stmt: &Stmt<'src>) -> LoxResult<'src, LoxValue<'src>> {
         match &stmt.kind {
+            StmtKind::VariableDecl { id, init } => {
+                let value = init
+                    .as_ref()
+                    .map(|init| self.eval(&init))
+                    .transpose()?
+                    .unwrap_or_default();
+
+                self.env.define(*id, value);
+            }
+            StmtKind::Block(stmts) => {
+                self.env.push_scope();
+                for stmt in stmts {
+                    self.execute(stmt)?;
+                }
+                self.env.pop_scope();
+            }
             StmtKind::Expr(expr) => {
-                let _value = self.eval(&expr)?;
+                let _value = self.eval(expr)?;
             }
             StmtKind::Print(expr) => {
                 let value = self.eval(expr)?;
@@ -218,6 +242,18 @@ impl<'src> Interpreter<'src> {
             ExprKind::Grouping { inner } => {
                 return self.eval(&inner);
             }
+            ExprKind::Assign { id, value } => {
+                let value = self.eval(value)?;
+                if !self.env.set(id, value.clone()) {
+                    return Err(LoxError {
+                        kind: LoxErrorKind::UndefinedVariable((*id).into()),
+                        source: self.source.clone(),
+                        span: expr.span.clone(),
+                    });
+                };
+                return Ok(value);
+            }
+            ExprKind::Var(id) => return self.get_var(id, expr.span.clone()),
             &ExprKind::LitString(s) => return Ok(LoxValue::String(s.into())),
             &ExprKind::LitNumber(n) => return Ok(LoxValue::Number(n)),
             &ExprKind::LitBoolean(b) => return Ok(LoxValue::Boolean(b)),
@@ -234,4 +270,14 @@ impl<'src> Interpreter<'src> {
     cast!(cast_number => f64, try_into_number in LoxValue::Number(v) => v, as NUMBER_KIND);
     cast!(cast_boolean => bool, try_into_boolean in LoxValue::Boolean(v) => v, as BOOLEAN_KIND);
     // cast!(cast_string => Cow<'src, str>, try_into_string in LoxValue::String(v) => v, as STRING_KIND);
+
+    fn get_var(&self, id: &'src str, span: SourceSpan) -> LoxResult<'src, LoxValue<'src>> {
+        self.env.get(id).cloned().ok_or_else(|| {
+            LoxError::new(
+                LoxErrorKind::UndefinedVariable(id.into()),
+                self.source.clone(),
+                span,
+            )
+        })
+    }
 }

@@ -306,3 +306,100 @@ fn parse_expressions() {
     assert!(matches!(stmts[1].kind, StmtKind::Expr(_)));
     assert!(matches!(stmts[2].kind, StmtKind::ExprReturn(_)));
 }
+
+#[test]
+fn parse_variable_declaration() {
+    let stmts = parse(vec![
+        t(TokenKind::Var),
+        t(TokenKind::Identifier("x")),
+        t(TokenKind::Semicolon),
+        t(TokenKind::Eof),
+    ]);
+    assert_eq!(stmts.len(), 1);
+    match &stmts[0].kind {
+        StmtKind::VariableDecl { id, init } => {
+            assert_eq!(*id, "x");
+            assert!(init.is_none());
+        }
+        _ => panic!("expected VariableDecl, got {:?}", stmts[0].kind),
+    }
+
+    let stmts = parse(vec![
+        t(TokenKind::Var),
+        t(TokenKind::Identifier("y")),
+        t(TokenKind::Equal),
+        t(TokenKind::Number(42.0)),
+        t(TokenKind::Semicolon),
+        t(TokenKind::Eof),
+    ]);
+    match &stmts[0].kind {
+        StmtKind::VariableDecl { id, init } => {
+            assert_eq!(*id, "y");
+            assert!(init.is_some());
+        }
+        _ => panic!("expected VariableDecl, got {:?}", stmts[0].kind),
+    }
+}
+
+#[test]
+fn parse_block() {
+    let stmts = parse(vec![
+        t(TokenKind::LeftBrace),
+        t(TokenKind::RightBrace),
+        t(TokenKind::Eof),
+    ]);
+    assert_eq!(stmts.len(), 1);
+    match &stmts[0].kind {
+        StmtKind::Block(stmts) => {
+            assert!(stmts.is_empty());
+        }
+        _ => panic!("expected Block, got {:?}", stmts[0].kind),
+    }
+
+    let stmts = parse(vec![
+        t(TokenKind::LeftBrace),
+        t(TokenKind::Number(1.0)),
+        t(TokenKind::Semicolon),
+        t(TokenKind::Number(2.0)),
+        t(TokenKind::Semicolon),
+        t(TokenKind::RightBrace),
+        t(TokenKind::Eof),
+    ]);
+    match &stmts[0].kind {
+        StmtKind::Block(stmts) => {
+            assert_eq!(stmts.len(), 2);
+        }
+        _ => panic!("expected Block, got {:?}", stmts[0].kind),
+    }
+}
+
+#[test]
+fn parse_variable_expression() {
+    let expr = parse_single(vec![
+        t(TokenKind::Identifier("myVar")),
+        t(TokenKind::Eof),
+    ]);
+    match expr.kind {
+        ExprKind::Var(id) => {
+            assert_eq!(id, "myVar");
+        }
+        _ => panic!("expected Var, got {:?}", expr.kind),
+    }
+}
+
+#[test]
+fn parse_assignment() {
+    let expr = parse_single(vec![
+        t(TokenKind::Identifier("x")),
+        t(TokenKind::Equal),
+        t(TokenKind::Number(10.0)),
+        t(TokenKind::Eof),
+    ]);
+    match expr.kind {
+        ExprKind::Assign { id, value } => {
+            assert_eq!(id, "x");
+            assert!(matches!(value.kind, ExprKind::LitNumber(10.0)));
+        }
+        _ => panic!("expected Assign, got {:?}", expr.kind),
+    }
+}

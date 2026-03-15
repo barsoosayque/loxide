@@ -6,8 +6,9 @@ use yansi::Paint;
 
 use loxide::{
     ast::{Expr, ExprKind, Stmt},
+    environment::Environment,
     error::{HandleLoxResult, HandleLoxResultIter},
-    interpreter::Interpreter,
+    interpreter::{Interpreter, LoxValue},
     parser::Parser,
     scanner::Scanner,
     source::Source,
@@ -31,7 +32,10 @@ fn main() -> Result<()> {
                 app.options.print_tokens = true;
             }
             Long("print-ast") => {
-                app.options.print_tokens = true;
+                app.options.print_ast = true;
+            }
+            Long("print-nil-result") => {
+                app.options.print_nil_result = true;
             }
             Value(f) if app.file.is_none() => {
                 app.file = Some(f.string()?);
@@ -68,7 +72,8 @@ impl App {
 
             let file = file.as_ref();
             let script = std::fs::read_to_string(file)?;
-            return run_script(&script, Some(file), &self.options);
+            let mut env = Environment::default();
+            return run_script(&script, Some(file), &mut env, &self.options);
         } else {
             println!(
                 "• {} in {} mode\n",
@@ -76,19 +81,22 @@ impl App {
                 "REPL".green().underline()
             );
 
-            let mut buffer = String::new();
+            let mut sources = elsa::FrozenVec::new();
+            let mut env = Environment::default();
             loop {
                 print!("> ");
                 std::io::stdout().flush()?;
 
+                let mut buffer = String::new();
                 let n = std::io::stdin().read_line(&mut buffer)?;
                 if n == 0 {
                     break;
                 }
+                sources.push(buffer);
                 // trim ending newline if any
-                let trimmed = buffer.trim_end_matches("\n");
-                let _ = run_script(trimmed, None, &self.options)?;
-                String::clear(&mut buffer);
+                let trimmed = sources.last().unwrap().trim_end_matches("\n");
+
+                let _ = run_script(trimmed, None, &mut env, &self.options)?;
             }
         }
         Ok(())
@@ -99,6 +107,7 @@ impl App {
 pub struct RunnerOptions {
     print_tokens: bool,
     print_ast: bool,
+    print_nil_result: bool,
 }
 
 impl Default for RunnerOptions {
@@ -106,13 +115,15 @@ impl Default for RunnerOptions {
         Self {
             print_tokens: false,
             print_ast: false,
+            print_nil_result: false,
         }
     }
 }
 
-fn run_script<'src>(
+fn run_script<'env, 'src>(
     script: &'src str,
     location: Option<&'src Path>,
+    env: &'env mut Environment<'src>,
     options: &RunnerOptions,
 ) -> Result<()> {
     let source = Source {
@@ -140,10 +151,17 @@ fn run_script<'src>(
         return Ok(());
     }
 
-    if let Some(value) = Interpreter::execute_ast(ast, &source).report_err() {
-        println!("{} {}", "•".green().dim(), value.to_string().green());
-    } else {
-        println!("\n{}  Runtime errors: {}", "🮮".dim(), 1.to_string());
+    match Interpreter::execute_many(ast, source, env).report_err() {
+        Some(value @ LoxValue::Nil) if options.print_nil_result => {
+            println!("{} {}", "•".green().dim(), value.to_string().green());
+        }
+        Some(LoxValue::Nil) => {}
+        Some(value) => {
+            println!("{} {}", "•".green().dim(), value.to_string().green());
+        }
+        _ => {
+            println!("\n{}  Runtime errors: {}", "🮮".dim(), 1.to_string());
+        }
     }
 
     Ok(())
@@ -180,7 +198,7 @@ where
         "AST".cyan(),
         "─".repeat(3).cyan()
     );
-    for (i, expr) in ast.into_iter().enumerate() {
-        println!("{}: {}", format!("{i:02}").dim(), expr.to_string().italic());
+    for (i, stmt) in ast.into_iter().enumerate() {
+        println!("{}: {}", format!("{i:02}").dim(), stmt.to_string().italic());
     }
 }

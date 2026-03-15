@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use yansi::Paint;
 
 use crate::{
@@ -12,31 +14,35 @@ pub enum LoxErrorKind<'src> {
     UnexpectedCharacter(char),
     UnexpectedEof,
     UnexpectedToken(TokenKind<'src>),
-    ExpectedToken(TokenKind<'src>),
+    UndefinedVariable(Cow<'src, str>),
+    Expected(&'static str),
     ExpectedExpr,
     ExpectedValues(&'static [&'static str]),
     UnterminatedString,
     InvalidNumber(String),
     InvalidConversion(&'static str, &'static str),
+    InvalidAssignmentTarget,
     Unreachable,
 }
 
 impl<'src> std::fmt::Display for LoxErrorKind<'src> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::UnexpectedCharacter(c) => f.write_fmt(format_args!("Unexpected character '{c}'")),
+            Self::UnexpectedCharacter(c) => write!(f, "Unexpected character '{c}'"),
             Self::UnexpectedEof => f.write_str("Unexpected end of file"),
-            Self::UnexpectedToken(k) => f.write_fmt(format_args!("Unexpected token '{k}'")),
-            Self::ExpectedToken(k) => f.write_fmt(format_args!("Expected '{k}'")),
+            Self::UnexpectedToken(k) => write!(f, "Unexpected token '{k}'"),
+            Self::UndefinedVariable(v) => write!(f, "Undefined variable '{v}'"),
+            Self::Expected(k) => write!(f, "Expected {k}"),
             Self::ExpectedExpr => f.write_str("Expected expression"),
             Self::ExpectedValues(vs) => {
-                f.write_fmt(format_args!("Expected values of types: {}", vs.join(", ")))
+                write!(f, "Expected values of types: {}", vs.join(", "))
             }
-            Self::UnterminatedString { .. } => f.write_fmt(format_args!("Unterminated string")),
-            Self::InvalidNumber(s) => f.write_fmt(format_args!("Invalid number: '{s}'")),
+            Self::UnterminatedString { .. } => write!(f, "Unterminated string"),
+            Self::InvalidNumber(s) => write!(f, "Invalid number: '{s}'"),
             Self::InvalidConversion(from, to) => {
-                f.write_fmt(format_args!("Cannot convert {from} to {to}"))
+                write!(f, "Cannot convert {from} to {to}")
             }
+            Self::InvalidAssignmentTarget => f.write_str("Invalid assignment target"),
             Self::Unreachable => {
                 f.write_str("Unreachable state reached, this is a bug. Damn.. good job")
             }

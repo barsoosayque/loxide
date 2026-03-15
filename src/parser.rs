@@ -3,7 +3,7 @@ use std::iter::Peekable;
 use crate::{
     ast::{Expr, ExprKind, Stmt, StmtKind},
     error::{LoxError, LoxErrorKind, LoxResult},
-    source::{IntoSource, Source, SourceSpanTracker, SourceSpanTrackerStack},
+    source::{IntoSource, Source, SourceSpan, SourceSpanTracker, SourceSpanTrackerStack},
     token::{Token, TokenKind},
 };
 
@@ -18,19 +18,48 @@ where
 }
 
 macro_rules! expect {
-    ($parser:expr, $token_pat:pat) => {
-        if let Some(token) = $parser.peek() {
-            match token.kind {
-                $token_pat => {
-                    let token = $parser.advance()?;
-                    $parser.stack.push(token.span.clone());
-                    Some(token)
-                }
-                _ => None,
+    ($parser:expr, $token:ident in $token_pat:pat => $ret:expr) => {
+        matches!(
+            $parser.peek(),
+            Some(Token {
+                #[allow(unused_variables)]
+                kind: $token_pat,
+                ..
+            })
+        )
+        .then(|| match $parser.advance() {
+            Ok(
+                $token @ Token {
+                    kind: $token_pat, ..
+                },
+            ) => {
+                $parser.stack.push($token.span.clone());
+                $ret
             }
-        } else {
-            None
-        }
+            _ => unreachable!(),
+        })
+    };
+    ($parser:expr, $token_pat:pat => $ret:expr) => {
+        expect!($parser, _token in $token_pat => $ret)
+    };
+    ($parser:expr, $token_pat:pat) => {
+        expect!($parser, token in $token_pat => token)
+    };
+}
+
+macro_rules! consume {
+    ($parser:expr, $token_pat:pat => $ret:expr, $expected:expr) => {
+        expect!($parser, $token_pat => $ret)
+            .ok_or_else(|| $parser.error_next_char(LoxErrorKind::Expected($expected)))
+    };
+    ($parser:expr, $token_pat:pat => $ret:expr) => {
+        consume!($parser, $token_pat => $ret, stringify!($token_pat))
+    };
+    ($parser:expr, $token_pat:pat, $expected:expr) => {
+        consume!($parser, a @ $token_pat => a, $expected)
+    };
+    ($parser:expr, $token_pat:pat) => {
+        consume!($parser, a @ $token_pat => a)
     };
 }
 
@@ -72,13 +101,53 @@ where
         }
     }
 
-    pub fn stmt(&mut self) -> LoxResult<'src, Stmt<'src>> {
+    pub fn decl(&mut self) -> LoxResult<'src, Stmt<'src>> {
         self.stack.push(self.stack.get());
 
+        if let Some(_) = expect!(self, TokenKind::Var) {
+            return self.var_decl();
+        }
+
+        self.stmt()
+    }
+
+    pub fn var_decl(&mut self) -> LoxResult<'src, Stmt<'src>> {
+        let id = consume!(self, TokenKind::Identifier(id) => id, "identifier name")?;
+
+        let init = expect!(self, TokenKind::Equal)
+            .map(|_op| self.expr())
+            .transpose()?
+            .map(Box::new);
+
+        consume!(self, TokenKind::Semicolon, "';' after variable declaration")?;
+
+        return Ok(Stmt::new(
+            StmtKind::VariableDecl { id, init },
+            self.stack.pop(),
+        ));
+    }
+
+    pub fn stmt(&mut self) -> LoxResult<'src, Stmt<'src>> {
         if let Some(_) = expect!(self, TokenKind::Print) {
             let expr = self.expr()?;
-            self.consume(TokenKind::Semicolon)?;
+            consume!(self, TokenKind::Semicolon, "';' after print statement")?;
             return Ok(Stmt::new(StmtKind::Print(Box::new(expr)), self.stack.pop()));
+        }
+
+        if let Some(_) = expect!(self, TokenKind::LeftBrace) {
+            let mut stmts = vec![];
+            while match self.peek() {
+                Some(Token {
+                    kind: TokenKind::RightBrace,
+                    ..
+                }) => false,
+                Some(_) => true,
+                _ => false,
+            } {
+                stmts.push(Box::new(self.decl()?));
+            }
+            consume!(self, TokenKind::RightBrace, "'}' after block")?;
+            return Ok(Stmt::new(StmtKind::Block(stmts), self.stack.pop()));
         }
 
         let expr = self.expr()?;
@@ -93,12 +162,36 @@ where
             ));
         }
 
-        self.consume(TokenKind::Semicolon)?;
+        consume!(self, TokenKind::Semicolon, "';' after statement")?;
         return Ok(Stmt::new(StmtKind::Expr(Box::new(expr)), self.stack.pop()));
     }
 
     pub fn expr(&mut self) -> LoxResult<'src, Expr<'src>> {
-        self.equality()
+        self.assignment()
+    }
+
+    pub fn assignment(&mut self) -> LoxResult<'src, Expr<'src>> {
+        let mut expr = self.equality()?;
+
+        if let Some(_op) = expect!(self, TokenKind::Equal) {
+            match expr.kind {
+                ExprKind::Var(id) => {
+                    let value = self.assignment()?;
+                    expr = Expr::new(
+                        ExprKind::Assign {
+                            id,
+                            value: Box::new(value),
+                        },
+                        self.stack.pop(),
+                    );
+                }
+                _ => {
+                    return Err(self.error(LoxErrorKind::InvalidAssignmentTarget));
+                }
+            }
+        }
+
+        Ok(expr)
     }
 
     binary!(
@@ -138,24 +231,19 @@ where
             return Ok(Expr::new(ExprKind::LitNil, self.stack.pop()));
         }
 
-        if let Some(Token {
-            kind: TokenKind::String(s),
-            ..
-        }) = expect!(self, TokenKind::String(..))
-        {
+        if let Some(s) = expect!(self, TokenKind::String(s) => s) {
             return Ok(Expr::new(ExprKind::LitString(s), self.stack.pop()));
         }
-        if let Some(Token {
-            kind: TokenKind::Number(n),
-            ..
-        }) = expect!(self, TokenKind::Number(..))
-        {
+        if let Some(n) = expect!(self, TokenKind::Number(n) => n) {
             return Ok(Expr::new(ExprKind::LitNumber(n), self.stack.pop()));
+        }
+        if let Some(id) = expect!(self, TokenKind::Identifier(id) => id) {
+            return Ok(Expr::new(ExprKind::Var(id), self.stack.pop()));
         }
 
         if let Some(_) = expect!(self, TokenKind::LeftParen) {
             let inner = self.expr()?;
-            self.consume(TokenKind::RightParen)?;
+            consume!(self, TokenKind::RightParen, "closing ')'")?;
             return Ok(Expr::new(
                 ExprKind::Grouping {
                     inner: Box::new(inner),
@@ -168,7 +256,7 @@ where
             let Token { kind, .. } = self.advance()?;
             Err(self.error(LoxErrorKind::UnexpectedToken(kind)))
         } else {
-            Err(self.error(LoxErrorKind::ExpectedExpr))
+            Err(self.error_next_char(LoxErrorKind::ExpectedExpr))
         }
     }
 
@@ -178,7 +266,7 @@ where
 
     fn advance(&mut self) -> LoxResult<'src, Token<'src>> {
         let Some(next) = self.tokens.next() else {
-            return Err(self.error(LoxErrorKind::UnexpectedEof));
+            return Err(self.error_next_char(LoxErrorKind::UnexpectedEof));
         };
 
         if let Some(Token { span, .. }) = self.peek().cloned() {
@@ -189,18 +277,6 @@ where
         self.tracker.set(next.span.clone());
 
         Ok(next)
-    }
-
-    fn consume(&mut self, kind: TokenKind<'src>) -> LoxResult<'src, Token<'src>> {
-        let Some(next) = self.peek() else {
-            return Err(self.error(LoxErrorKind::ExpectedToken(kind)));
-        };
-
-        if next.kind == kind {
-            return self.advance();
-        }
-
-        Err(self.error(LoxErrorKind::ExpectedToken(kind)))
     }
 
     fn synchronize(&mut self) {
@@ -237,6 +313,16 @@ where
         LoxError::new(kind, self.source.clone(), self.tracker.get())
     }
 
+    fn error_next_char(&self, kind: LoxErrorKind<'src>) -> LoxError<'src> {
+        let span = self.tracker.get();
+        let span = SourceSpan {
+            line: span.line,
+            char_range: (span.char_end().saturating_add(1)..=span.char_end().saturating_add(1)),
+            bytes_range: (span.bytes_end().saturating_add(1)..=span.bytes_end().saturating_add(1)),
+        };
+        LoxError::new(kind, self.source.clone(), span)
+    }
+
     fn is_end(&mut self) -> bool {
         matches!(
             self.peek(),
@@ -259,7 +345,7 @@ where
             return None;
         }
 
-        Some(self.stmt().inspect_err(|err| {
+        Some(self.decl().inspect_err(|err| {
             match err.kind {
                 LoxErrorKind::UnexpectedEof => {
                     // unrecoverable

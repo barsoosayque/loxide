@@ -1,5 +1,6 @@
 use loxide::{
     ast::{Expr, ExprKind, Stmt, StmtKind},
+    environment::Environment,
     interpreter::{Interpreter, LoxValue},
     source::SourceSpan,
     token::TokenKind,
@@ -64,9 +65,38 @@ fn grouping(inner: Expr<'static>) -> Expr<'static> {
     })
 }
 
+fn var_expr(id: &'static str) -> Expr<'static> {
+    expr(ExprKind::Var(id))
+}
+
+fn assign(id: &'static str, value: Expr<'static>) -> Expr<'static> {
+    expr(ExprKind::Assign {
+        id,
+        value: Box::new(value),
+    })
+}
+
+fn var_decl(id: &'static str, init: Option<Expr<'static>>) -> Stmt<'static> {
+    stmt(StmtKind::VariableDecl {
+        id,
+        init: init.map(Box::new),
+    })
+}
+
+fn block(stmts: Vec<Stmt<'static>>) -> Stmt<'static> {
+    stmt(StmtKind::Block(stmts.into_iter().map(Box::new).collect()))
+}
+
 fn interpret_expr(expr: Expr<'static>) -> LoxValue<'static> {
     let stmt = stmt(StmtKind::ExprReturn(Box::new(expr)));
-    Interpreter::execute_ast([stmt], "").unwrap()
+    let mut env = Environment::default();
+    Interpreter::execute_many([stmt], "", &mut env).unwrap()
+}
+
+fn interpret_stmt(stmt: Stmt<'static>) -> (LoxValue<'static>, Environment<'static>) {
+    let mut env = Environment::default();
+    let value = Interpreter::execute_many([stmt], "", &mut env).unwrap();
+    (value, env)
 }
 
 #[test]
@@ -180,4 +210,50 @@ fn interpret_grouping() {
         num(3.0),
     ));
     assert!(matches!(value, LoxValue::Number(9.0)));
+}
+
+#[test]
+fn interpret_variable_declaration() {
+    let stmt = var_decl("x", Some(num(42.0)));
+    let (value, env) = interpret_stmt(stmt);
+    assert!(matches!(value, LoxValue::Nil));
+    assert!(matches!(env.get("x"), Some(LoxValue::Number(42.0))));
+
+    let stmt = var_decl("y", None);
+    let (value, env) = interpret_stmt(stmt);
+    assert!(matches!(value, LoxValue::Nil));
+    assert!(matches!(env.get("y"), Some(LoxValue::Nil)));
+}
+
+#[test]
+fn interpret_variable_access() {
+    let decl = var_decl("x", Some(num(10.0)));
+    let expr_stmt = stmt(StmtKind::ExprReturn(Box::new(var_expr("x"))));
+    let mut env = Environment::default();
+    Interpreter::execute_many([decl, expr_stmt], "", &mut env).unwrap();
+    let value = env.get("x").cloned().unwrap();
+    assert!(matches!(value, LoxValue::Number(10.0)));
+}
+
+#[test]
+fn interpret_variable_assignment() {
+    let decl = var_decl("x", Some(num(5.0)));
+    let assign_stmt = stmt(StmtKind::ExprReturn(Box::new(assign("x", num(20.0)))));
+    let mut env = Environment::default();
+    Interpreter::execute_many([decl, assign_stmt], "", &mut env).unwrap();
+    let value = env.get("x").cloned().unwrap();
+    assert!(matches!(value, LoxValue::Number(20.0)));
+}
+
+#[test]
+fn interpret_block_scoping() {
+    let outer_decl = var_decl("x", Some(num(1.0)));
+    let inner_block = block(vec![var_decl("x", Some(num(2.0)))]);
+    let outer_print = stmt(StmtKind::ExprReturn(Box::new(var_expr("x"))));
+
+    let mut env = Environment::default();
+    Interpreter::execute_many([outer_decl, inner_block, outer_print.clone()], "", &mut env).unwrap();
+
+    let value = env.get("x").cloned().unwrap();
+    assert!(matches!(value, LoxValue::Number(1.0)));
 }
