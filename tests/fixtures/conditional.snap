@@ -5,3 +5,5 @@ expression: run_lox(file)
 ---
 "yes"
 "other"
+"1 wins"
+"last wins"

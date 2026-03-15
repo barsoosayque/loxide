@@ -9,3 +9,13 @@ if (false) {
 } else {
 	print "other";
 }
+
+if (nil or 1 == 1) {
+	print "1 wins";
+}
+if ("first" and "last" == "last") {
+	print "last wins";
+}
+if (true == "true") {
+	print "javascript moment";
+}

@@ -23,25 +23,25 @@ pub enum LoxValue<'src> {
 }
 
 impl<'src> LoxValue<'src> {
-    pub fn try_into_number(self) -> Option<Self> {
+    pub fn try_as_number(&self) -> Option<Self> {
         match self {
-            n @ LoxValue::Number(_) => Some(n),
+            &Self::Number(n) => Some(Self::Number(n)),
             _ => None,
         }
     }
 
-    pub fn try_into_string(self) -> Option<Self> {
+    pub fn try_as_string(&self) -> Option<Self> {
         match self {
-            s @ LoxValue::String(_) => Some(s),
+            Self::String(s) => Some(Self::String(s.clone())),
             v => Some(LoxValue::String(v.to_string().into())),
         }
     }
 
-    pub fn try_into_boolean(self) -> Option<Self> {
+    pub fn try_as_boolean(&self) -> Option<Self> {
         match self {
-            b @ LoxValue::Boolean(_) => Some(b),
-            LoxValue::Nil => Some(LoxValue::Boolean(false)),
-            _ => Some(LoxValue::Boolean(true)),
+            &Self::Boolean(b) => Some(Self::Boolean(b)),
+            Self::Nil => Some(Self::Boolean(false)),
+            _ => Some(Self::Boolean(true)),
         }
     }
 
@@ -81,7 +81,7 @@ impl std::fmt::Display for LoxValue<'_> {
 
 macro_rules! cast {
     ($name:ident => $out:ty, $f:ident in $pat:pat => $val:expr, as $kind:expr) => {
-        fn $name(&self, value: LoxValue<'src>, span: SourceSpan) -> LoxResult<'src, $out> {
+        fn $name(&self, value: &LoxValue<'src>, span: SourceSpan) -> LoxResult<'src, $out> {
             let kind = value.kind();
             match value.$f() {
                 Some($pat) => Ok($val),
@@ -160,7 +160,7 @@ impl<'env, 'src> Interpreter<'env, 'src> {
                 or_else,
             } => {
                 let condition_value = self.eval(&condition)?;
-                let condition = self.cast_boolean(condition_value, condition.span.clone())?;
+                let condition = self.cast_boolean(&condition_value, condition.span.clone())?;
                 if condition {
                     let then_value = self.execute(&then)?;
                     return Ok(then_value);
@@ -181,23 +181,23 @@ impl<'env, 'src> Interpreter<'env, 'src> {
 
                 match op {
                     TokenKind::Greater => {
-                        let left_n = self.cast_number(left_value, left.span.clone())?;
-                        let right_n = self.cast_number(right_value, right.span.clone())?;
+                        let left_n = self.cast_number(&left_value, left.span.clone())?;
+                        let right_n = self.cast_number(&right_value, right.span.clone())?;
                         return Ok(LoxValue::Boolean(left_n > right_n));
                     }
                     TokenKind::GreaterEqual => {
-                        let left_n = self.cast_number(left_value, left.span.clone())?;
-                        let right_n = self.cast_number(right_value, right.span.clone())?;
+                        let left_n = self.cast_number(&left_value, left.span.clone())?;
+                        let right_n = self.cast_number(&right_value, right.span.clone())?;
                         return Ok(LoxValue::Boolean(left_n >= right_n));
                     }
                     TokenKind::Less => {
-                        let left_n = self.cast_number(left_value, left.span.clone())?;
-                        let right_n = self.cast_number(right_value, right.span.clone())?;
+                        let left_n = self.cast_number(&left_value, left.span.clone())?;
+                        let right_n = self.cast_number(&right_value, right.span.clone())?;
                         return Ok(LoxValue::Boolean(left_n < right_n));
                     }
                     TokenKind::LessEqual => {
-                        let left_n = self.cast_number(left_value, left.span.clone())?;
-                        let right_n = self.cast_number(right_value, right.span.clone())?;
+                        let left_n = self.cast_number(&left_value, left.span.clone())?;
+                        let right_n = self.cast_number(&right_value, right.span.clone())?;
                         return Ok(LoxValue::Boolean(left_n <= right_n));
                     }
                     TokenKind::EqualEqual => {
@@ -207,18 +207,18 @@ impl<'env, 'src> Interpreter<'env, 'src> {
                         return Ok(LoxValue::Boolean(left_value != right_value));
                     }
                     TokenKind::Minus => {
-                        let left_n = self.cast_number(left_value, left.span.clone())?;
-                        let right_n = self.cast_number(right_value, right.span.clone())?;
+                        let left_n = self.cast_number(&left_value, left.span.clone())?;
+                        let right_n = self.cast_number(&right_value, right.span.clone())?;
                         return Ok(LoxValue::Number(left_n - right_n));
                     }
                     TokenKind::Slash => {
-                        let left_n = self.cast_number(left_value, left.span.clone())?;
-                        let right_n = self.cast_number(right_value, right.span.clone())?;
+                        let left_n = self.cast_number(&left_value, left.span.clone())?;
+                        let right_n = self.cast_number(&right_value, right.span.clone())?;
                         return Ok(LoxValue::Number(left_n / right_n));
                     }
                     TokenKind::Star => {
-                        let left_n = self.cast_number(left_value, left.span.clone())?;
-                        let right_n = self.cast_number(right_value, right.span.clone())?;
+                        let left_n = self.cast_number(&left_value, left.span.clone())?;
+                        let right_n = self.cast_number(&right_value, right.span.clone())?;
                         return Ok(LoxValue::Number(left_n * right_n));
                     }
                     TokenKind::Plus => match (left_value, right_value) {
@@ -239,16 +239,40 @@ impl<'env, 'src> Interpreter<'env, 'src> {
                     _ => {}
                 }
             }
+
+            ExprKind::Logic { left, op, right } => {
+                let left_value = self.eval(&left)?;
+                let left = self.cast_boolean(&left_value, left.span.clone())?;
+
+                match op {
+                    TokenKind::Or if left => {
+                        return Ok(left_value);
+                    }
+                    TokenKind::And if !left => {
+                        return Ok(left_value);
+                    }
+                    TokenKind::Or | TokenKind::And => {
+                        return self.eval(&right);
+                    }
+                    _ => {
+                        return Err(LoxError {
+                            kind: LoxErrorKind::Expected("'or' | 'and' operators"),
+                            source: self.source.clone(),
+                            span: expr.span.clone(),
+                        });
+                    }
+                }
+            }
             ExprKind::Unary { op, right } => {
                 let right_value = self.eval(&right)?;
 
                 match op {
                     TokenKind::Minus => {
-                        let n = self.cast_number(right_value, right.span.clone())?;
+                        let n = self.cast_number(&right_value, right.span.clone())?;
                         return Ok(LoxValue::Number(-n));
                     }
                     TokenKind::Bang => {
-                        let b = self.cast_boolean(right_value, right.span.clone())?;
+                        let b = self.cast_boolean(&right_value, right.span.clone())?;
                         return Ok(LoxValue::Boolean(!b));
                     }
                     _ => {}
@@ -282,9 +306,9 @@ impl<'env, 'src> Interpreter<'env, 'src> {
         })
     }
 
-    cast!(cast_number => f64, try_into_number in LoxValue::Number(v) => v, as NUMBER_KIND);
-    cast!(cast_boolean => bool, try_into_boolean in LoxValue::Boolean(v) => v, as BOOLEAN_KIND);
-    // cast!(cast_string => Cow<'src, str>, try_into_string in LoxValue::String(v) => v, as STRING_KIND);
+    cast!(cast_number => f64, try_as_number in LoxValue::Number(v) => v, as NUMBER_KIND);
+    cast!(cast_boolean => bool, try_as_boolean in LoxValue::Boolean(v) => v, as BOOLEAN_KIND);
+    // cast!(cast_string => Cow<'src, str>, try_as_string in LoxValue::String(v) => v, as STRING_KIND);
 
     fn get_var(&self, id: &'src str, span: SourceSpan) -> LoxResult<'src, LoxValue<'src>> {
         self.env.get(id).cloned().ok_or_else(|| {

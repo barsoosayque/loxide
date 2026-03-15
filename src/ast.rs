@@ -29,6 +29,11 @@ pub enum ExprKind<'src> {
         op: TokenKind<'src>,
         right: Box<Expr<'src>>,
     },
+    Logic {
+        left: Box<Expr<'src>>,
+        op: TokenKind<'src>,
+        right: Box<Expr<'src>>,
+    },
     Unary {
         op: TokenKind<'src>,
         right: Box<Expr<'src>>,
@@ -90,6 +95,14 @@ impl DisplayTree for Expr<'_> {
         };
         match &self.kind {
             ExprKind::Binary { left, op, right } => {
+                write!(f, "Binary{span} {op}")?;
+                write!(f, "\n{t}├── ")?;
+                left.format_tree(f, indent + 1)?;
+                write!(f, "\n{t}└── ")?;
+                right.format_tree(f, indent + 1)?;
+                Ok(())
+            }
+            ExprKind::Logic { left, op, right } => {
                 write!(f, "Binary{span} {op}")?;
                 write!(f, "\n{t}├── ")?;
                 left.format_tree(f, indent + 1)?;

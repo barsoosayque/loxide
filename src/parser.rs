@@ -189,7 +189,7 @@ where
     }
 
     pub fn assignment(&mut self) -> LoxResult<'src, Expr<'src>> {
-        let mut expr = self.equality()?;
+        let mut expr = self.or()?;
 
         if let Some(_op) = expect!(self, TokenKind::Equal) {
             match expr.kind {
@@ -207,6 +207,42 @@ where
                     return Err(self.error_for(LoxErrorKind::InvalidAssignmentTarget, expr.span));
                 }
             }
+        }
+
+        Ok(expr)
+    }
+
+    pub fn or(&mut self) -> LoxResult<'src, Expr<'src>> {
+        let mut expr = self.and()?;
+
+        while let Some(op) = expect!(self, TokenKind::Or) {
+            let right = self.and()?;
+            expr = Expr::new(
+                ExprKind::Logic {
+                    left: Box::new(expr),
+                    op: op.kind,
+                    right: Box::new(right),
+                },
+                self.stack.pop(),
+            );
+        }
+
+        Ok(expr)
+    }
+
+    pub fn and(&mut self) -> LoxResult<'src, Expr<'src>> {
+        let mut expr = self.equality()?;
+
+        while let Some(op) = expect!(self, TokenKind::And) {
+            let right = self.equality()?;
+            expr = Expr::new(
+                ExprKind::Logic {
+                    left: Box::new(expr),
+                    op: op.kind,
+                    right: Box::new(right),
+                },
+                self.stack.pop(),
+            );
         }
 
         Ok(expr)
