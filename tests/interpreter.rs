@@ -76,6 +76,26 @@ fn assign(id: &'static str, value: Expr<'static>) -> Expr<'static> {
     })
 }
 
+fn logic(left: Expr<'static>, op: TokenKind<'static>, right: Expr<'static>) -> Expr<'static> {
+    expr(ExprKind::Logic {
+        left: Box::new(left),
+        op,
+        right: Box::new(right),
+    })
+}
+
+fn conditional(
+    condition: Expr<'static>,
+    then_branch: Stmt<'static>,
+    else_branch: Option<Stmt<'static>>,
+) -> Stmt<'static> {
+    stmt(StmtKind::Conditional {
+        condition: Box::new(condition),
+        then: Box::new(then_branch),
+        or_else: else_branch.map(Box::new),
+    })
+}
+
 fn var_decl(id: &'static str, init: Option<Expr<'static>>) -> Stmt<'static> {
     stmt(StmtKind::VariableDecl {
         id,
@@ -256,4 +276,69 @@ fn interpret_block_scoping() {
 
     let value = env.get("x").cloned().unwrap();
     assert!(matches!(value, LoxValue::Number(1.0)));
+}
+
+#[test]
+fn interpret_logical_and() {
+    let value = interpret_expr(logic(boolean(true), TokenKind::And, boolean(true)));
+    assert!(matches!(value, LoxValue::Boolean(true)));
+
+    let value = interpret_expr(logic(boolean(true), TokenKind::And, boolean(false)));
+    assert!(matches!(value, LoxValue::Boolean(false)));
+
+    let value = interpret_expr(logic(boolean(false), TokenKind::And, boolean(true)));
+    assert!(matches!(value, LoxValue::Boolean(false)));
+}
+
+#[test]
+fn interpret_logical_or() {
+    let value = interpret_expr(logic(boolean(false), TokenKind::Or, boolean(false)));
+    assert!(matches!(value, LoxValue::Boolean(false)));
+
+    let value = interpret_expr(logic(boolean(true), TokenKind::Or, boolean(false)));
+    assert!(matches!(value, LoxValue::Boolean(true)));
+
+    let value = interpret_expr(logic(boolean(false), TokenKind::Or, boolean(true)));
+    assert!(matches!(value, LoxValue::Boolean(true)));
+}
+
+#[test]
+fn interpret_if_true() {
+    let conditional_stmt = conditional(
+        boolean(true),
+        stmt(StmtKind::ExprReturn(Box::new(num(1.0)))),
+        None,
+    );
+    let (value, _env) = interpret_stmt(conditional_stmt);
+    assert!(matches!(value, LoxValue::Number(1.0)));
+}
+
+#[test]
+fn interpret_if_false() {
+    let conditional_stmt = conditional(
+        boolean(false),
+        stmt(StmtKind::ExprReturn(Box::new(num(1.0)))),
+        None,
+    );
+    let (value, _env) = interpret_stmt(conditional_stmt);
+    assert!(matches!(value, LoxValue::Nil));
+}
+
+#[test]
+fn interpret_if_else() {
+    let conditional_stmt = conditional(
+        boolean(true),
+        stmt(StmtKind::ExprReturn(Box::new(num(1.0)))),
+        Some(stmt(StmtKind::ExprReturn(Box::new(num(2.0))))),
+    );
+    let (value, _env) = interpret_stmt(conditional_stmt);
+    assert!(matches!(value, LoxValue::Number(1.0)));
+
+    let conditional_stmt = conditional(
+        boolean(false),
+        stmt(StmtKind::ExprReturn(Box::new(num(1.0)))),
+        Some(stmt(StmtKind::ExprReturn(Box::new(num(2.0))))),
+    );
+    let (value, _env) = interpret_stmt(conditional_stmt);
+    assert!(matches!(value, LoxValue::Number(2.0)));
 }

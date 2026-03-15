@@ -403,3 +403,83 @@ fn parse_assignment() {
         _ => panic!("expected Assign, got {:?}", expr.kind),
     }
 }
+
+#[test]
+fn parse_logical_and() {
+    let expr = parse_single(vec![
+        t(TokenKind::True),
+        t(TokenKind::And),
+        t(TokenKind::False),
+        t(TokenKind::Eof),
+    ]);
+    match expr.kind {
+        ExprKind::Logic { left, op, right } => {
+            assert!(matches!(left.kind, ExprKind::LitBoolean(true)));
+            assert!(matches!(op, TokenKind::And));
+            assert!(matches!(right.kind, ExprKind::LitBoolean(false)));
+        }
+        _ => panic!("expected Logic, got {:?}", expr.kind),
+    }
+}
+
+#[test]
+fn parse_logical_or() {
+    let expr = parse_single(vec![
+        t(TokenKind::False),
+        t(TokenKind::Or),
+        t(TokenKind::True),
+        t(TokenKind::Eof),
+    ]);
+    match expr.kind {
+        ExprKind::Logic { left, op, right } => {
+            assert!(matches!(left.kind, ExprKind::LitBoolean(false)));
+            assert!(matches!(op, TokenKind::Or));
+            assert!(matches!(right.kind, ExprKind::LitBoolean(true)));
+        }
+        _ => panic!("expected Logic, got {:?}", expr.kind),
+    }
+}
+
+#[test]
+fn parse_if_statement() {
+    let stmts = parse(vec![
+        t(TokenKind::If),
+        t(TokenKind::LeftParen),
+        t(TokenKind::True),
+        t(TokenKind::RightParen),
+        t(TokenKind::Number(1.0)),
+        t(TokenKind::Semicolon),
+        t(TokenKind::Eof),
+    ]);
+    assert_eq!(stmts.len(), 1);
+    match &stmts[0].kind {
+        StmtKind::Conditional { condition, then: _, or_else } => {
+            assert!(matches!(condition.kind, ExprKind::LitBoolean(true)));
+            assert!(or_else.is_none(), "expected no else branch");
+        }
+        _ => panic!("expected Conditional, got {:?}", stmts[0].kind),
+    }
+}
+
+#[test]
+fn parse_if_else_statement() {
+    let stmts = parse(vec![
+        t(TokenKind::If),
+        t(TokenKind::LeftParen),
+        t(TokenKind::True),
+        t(TokenKind::RightParen),
+        t(TokenKind::Number(1.0)),
+        t(TokenKind::Semicolon),
+        t(TokenKind::Else),
+        t(TokenKind::Number(2.0)),
+        t(TokenKind::Semicolon),
+        t(TokenKind::Eof),
+    ]);
+    match &stmts[0].kind {
+        StmtKind::Conditional { condition, then: _, or_else } => {
+            assert!(matches!(condition.kind, ExprKind::LitBoolean(true)));
+            assert!(or_else.is_some());
+        }
+        _ => panic!("expected Conditional, got {:?}", stmts[0].kind),
+    }
+}
