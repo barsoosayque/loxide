@@ -37,6 +37,10 @@ fn main() -> Result<()> {
             Long("print-nil-result") => {
                 app.options.print_nil_result = true;
             }
+            Long("plain") => {
+                app.options.plain = true;
+                yansi::disable();
+            }
             Value(f) if app.file.is_none() => {
                 app.file = Some(f.string()?);
             }
@@ -64,22 +68,26 @@ struct App {
 impl App {
     pub fn run(self) -> Result<()> {
         if let Some(file) = &self.file {
-            println!(
-                "• {} running {}\n",
-                "loxide".yellow(),
-                file.blue().underline()
-            );
+            if !self.options.plain {
+                println!(
+                    "• {} running {}\n",
+                    "loxide".yellow(),
+                    file.blue().underline()
+                );
+            }
 
             let file = file.as_ref();
             let script = std::fs::read_to_string(file)?;
             let mut env = Environment::default();
             return run_script(&script, Some(file), &mut env, &self.options);
         } else {
-            println!(
-                "• {} in {} mode\n",
-                "loxide".yellow(),
-                "REPL".green().underline()
-            );
+            if !self.options.plain {
+                println!(
+                    "• {} in {} mode\n",
+                    "loxide".yellow(),
+                    "REPL".green().underline()
+                );
+            }
 
             let mut sources = elsa::FrozenVec::new();
             let mut env = Environment::default();
@@ -108,6 +116,7 @@ pub struct RunnerOptions {
     print_tokens: bool,
     print_ast: bool,
     print_nil_result: bool,
+    plain: bool,
 }
 
 impl Default for RunnerOptions {
@@ -116,6 +125,7 @@ impl Default for RunnerOptions {
             print_tokens: false,
             print_ast: false,
             print_nil_result: false,
+            plain: false,
         }
     }
 }
@@ -143,24 +153,40 @@ fn run_script<'env, 'src>(
 
     let total_errors = scanner_errors + parser_errors;
     if total_errors > 0 {
-        println!(
-            "\n{}  Parsing errors: {}",
-            "🮮".bright_red(),
-            total_errors.to_string().bright_white(),
-        );
+        if options.plain {
+            println!("Parsing errors: {}", total_errors);
+        } else {
+            println!(
+                "\n{}  Parsing errors: {}",
+                "🮮".bright_red(),
+                total_errors.to_string().bright_white(),
+            );
+        }
         return Ok(());
     }
 
     match Interpreter::execute_many(ast, source, env).report_err() {
         Some(value @ LoxValue::Nil) if options.print_nil_result => {
-            println!("{} {}", "•".green().dim(), value.to_string().green());
+            if options.plain {
+                println!("{}", value);
+            } else {
+                println!("{} {}", "•".green().dim(), value.to_string().green());
+            }
         }
         Some(LoxValue::Nil) => {}
         Some(value) => {
-            println!("{} {}", "•".green().dim(), value.to_string().green());
+            if options.plain {
+                println!("{}", value);
+            } else {
+                println!("{} {}", "•".green().dim(), value.to_string().green());
+            }
         }
         _ => {
-            println!("\n{}  Runtime errors: {}", "🮮".dim(), 1.to_string());
+            if options.plain {
+                println!("Runtime errors: {}", 1);
+            } else {
+                println!("\n{}  Runtime errors: {}", "🮮".dim(), 1.to_string());
+            }
         }
     }
 

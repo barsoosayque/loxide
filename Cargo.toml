@@ -12,5 +12,9 @@ peek-again = "0.5.2"
 hashbrown = { version = "0.16.1", default-features = false, features = ["default-hasher"] }
 elsa = "1.11.2"
 
+[dev-dependencies]
+insta = { version = "1.46", default-features = false }
+assert_cmd = "2.0"
+
 [lib]
 path = "src/lib.rs"
