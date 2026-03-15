@@ -51,7 +51,10 @@ fn main() -> Result<()> {
                 println!("Usage: {bin_name} OPTIONS [file]");
                 println!("");
                 println!("OPTIONS:");
-                println!("    --print-tokens:    Output scanned tokens to stdout");
+                println!("    --print-tokens         Output scanned tokens to stdout");
+                println!("    --print-ast            Output parsed AST to stdout");
+                println!("    --print-nil-result     Print nil values from returns");
+                println!("    --plain                Disable colors and icons for output");
                 std::process::exit(64);
             }
         }
