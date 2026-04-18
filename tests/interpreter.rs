@@ -272,7 +272,8 @@ fn interpret_block_scoping() {
     let outer_print = stmt(StmtKind::ExprReturn(Box::new(var_expr("x"))));
 
     let mut env = Environment::default();
-    Interpreter::execute_many([outer_decl, inner_block, outer_print.clone()], "", &mut env).unwrap();
+    Interpreter::execute_many([outer_decl, inner_block, outer_print.clone()], "", &mut env)
+        .unwrap();
 
     let value = env.get("x").cloned().unwrap();
     assert!(matches!(value, LoxValue::Number(1.0)));
@@ -341,4 +342,32 @@ fn interpret_if_else() {
     );
     let (value, _env) = interpret_stmt(conditional_stmt);
     assert!(matches!(value, LoxValue::Number(2.0)));
+}
+
+#[test]
+fn interpret_while_loop_zero_iterations() {
+    let while_stmt = stmt(StmtKind::While {
+        condition: Box::new(boolean(false)),
+        body: Box::new(stmt(StmtKind::ExprReturn(Box::new(num(1.0))))),
+    });
+    let (value, _env) = interpret_stmt(while_stmt);
+    assert!(matches!(value, LoxValue::Nil));
+}
+
+#[test]
+fn interpret_while_loop_multiple_iterations() {
+    let while_stmt = stmt(StmtKind::While {
+        condition: Box::new(binary(var_expr("i"), TokenKind::Less, num(3.0))),
+        body: Box::new(stmt(StmtKind::VariableDecl {
+            id: "i",
+            init: Some(Box::new(binary(var_expr("i"), TokenKind::Plus, num(1.0)))),
+        })),
+    });
+    let mut_env = stmt(StmtKind::VariableDecl {
+        id: "i",
+        init: Some(Box::new(num(0.0))),
+    });
+    let mut env = Environment::default();
+    Interpreter::execute_many([mut_env, while_stmt], "", &mut env).unwrap();
+    assert!(matches!(env.get("i"), Some(LoxValue::Number(3.0))));
 }

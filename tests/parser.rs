@@ -375,10 +375,7 @@ fn parse_block() {
 
 #[test]
 fn parse_variable_expression() {
-    let expr = parse_single(vec![
-        t(TokenKind::Identifier("myVar")),
-        t(TokenKind::Eof),
-    ]);
+    let expr = parse_single(vec![t(TokenKind::Identifier("myVar")), t(TokenKind::Eof)]);
     match expr.kind {
         ExprKind::Var(id) => {
             assert_eq!(id, "myVar");
@@ -453,7 +450,11 @@ fn parse_if_statement() {
     ]);
     assert_eq!(stmts.len(), 1);
     match &stmts[0].kind {
-        StmtKind::Conditional { condition, then: _, or_else } => {
+        StmtKind::Conditional {
+            condition,
+            then: _,
+            or_else,
+        } => {
             assert!(matches!(condition.kind, ExprKind::LitBoolean(true)));
             assert!(or_else.is_none(), "expected no else branch");
         }
@@ -476,10 +477,56 @@ fn parse_if_else_statement() {
         t(TokenKind::Eof),
     ]);
     match &stmts[0].kind {
-        StmtKind::Conditional { condition, then: _, or_else } => {
+        StmtKind::Conditional {
+            condition,
+            then: _,
+            or_else,
+        } => {
             assert!(matches!(condition.kind, ExprKind::LitBoolean(true)));
             assert!(or_else.is_some());
         }
         _ => panic!("expected Conditional, got {:?}", stmts[0].kind),
+    }
+}
+
+#[test]
+fn parse_while_statement() {
+    let stmts = parse(vec![
+        t(TokenKind::While),
+        t(TokenKind::LeftParen),
+        t(TokenKind::True),
+        t(TokenKind::RightParen),
+        t(TokenKind::Number(1.0)),
+        t(TokenKind::Semicolon),
+        t(TokenKind::Eof),
+    ]);
+    assert_eq!(stmts.len(), 1);
+    match &stmts[0].kind {
+        StmtKind::While { condition, body: _ } => {
+            assert!(matches!(condition.kind, ExprKind::LitBoolean(true)));
+        }
+        _ => panic!("expected While, got {:?}", stmts[0].kind),
+    }
+}
+
+#[test]
+fn parse_while_with_block_body() {
+    let stmts = parse(vec![
+        t(TokenKind::While),
+        t(TokenKind::LeftParen),
+        t(TokenKind::True),
+        t(TokenKind::RightParen),
+        t(TokenKind::LeftBrace),
+        t(TokenKind::Number(1.0)),
+        t(TokenKind::Semicolon),
+        t(TokenKind::RightBrace),
+        t(TokenKind::Eof),
+    ]);
+    match &stmts[0].kind {
+        StmtKind::While { condition, body } => {
+            assert!(matches!(condition.kind, ExprKind::LitBoolean(true)));
+            assert!(matches!(body.kind, StmtKind::Block(_)));
+        }
+        _ => panic!("expected While, got {:?}", stmts[0].kind),
     }
 }

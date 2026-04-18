@@ -18,7 +18,7 @@ macro_rules! test_snapshot {
     ($id:ident) => {
         #[test]
         fn $id() {
-            let file = stringify!($id);
+            let file = stringify!($id).trim_start_matches("r#");
             let mut settings = insta::Settings::clone_current();
             settings.set_snapshot_path("fixtures/");
             settings.set_prepend_module_to_snapshot(false);
@@ -33,3 +33,4 @@ macro_rules! test_snapshot {
 test_snapshot!(blocks);
 test_snapshot!(variables);
 test_snapshot!(conditional);
+test_snapshot!(r#while);
