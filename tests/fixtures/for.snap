@@ -1,0 +1,13 @@
+---
+source: tests/snapshots.rs
+assertion_line: 46
+expression: run_lox(file)
+---
+"Sum after for loop:"
+3
+0
+1
+"Done"
+0
+1
+2

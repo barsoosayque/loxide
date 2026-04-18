@@ -355,6 +355,34 @@ fn interpret_while_loop_zero_iterations() {
 }
 
 #[test]
+fn interpret_for_loop_zero_iterations() {
+    let for_stmt = stmt(StmtKind::While {
+        condition: Box::new(boolean(false)),
+        body: Box::new(stmt(StmtKind::ExprReturn(Box::new(num(1.0))))),
+    });
+    let (value, _env) = interpret_stmt(for_stmt);
+    assert!(matches!(value, LoxValue::Nil));
+}
+
+#[test]
+fn interpret_for_loop_with_increment() {
+    let init = stmt(StmtKind::VariableDecl {
+        id: "i",
+        init: Some(Box::new(num(0.0))),
+    });
+    let for_stmt = stmt(StmtKind::While {
+        condition: Box::new(binary(var_expr("i"), TokenKind::Less, num(3.0))),
+        body: Box::new(stmt(StmtKind::Expr(Box::new(assign(
+            "i",
+            binary(var_expr("i"), TokenKind::Plus, num(1.0)),
+        ))))),
+    });
+    let mut env = Environment::default();
+    let _result = Interpreter::execute_many([init, for_stmt], "", &mut env).unwrap();
+    assert!(matches!(env.get("i"), Some(LoxValue::Number(3.0))));
+}
+
+#[test]
 fn interpret_while_loop_multiple_iterations() {
     let while_stmt = stmt(StmtKind::While {
         condition: Box::new(binary(var_expr("i"), TokenKind::Less, num(3.0))),

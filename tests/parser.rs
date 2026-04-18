@@ -530,3 +530,52 @@ fn parse_while_with_block_body() {
         _ => panic!("expected While, got {:?}", stmts[0].kind),
     }
 }
+
+#[test]
+fn parse_for_loop_basic() {
+    let stmts = parse(vec![
+        t(TokenKind::For),
+        t(TokenKind::LeftParen),
+        t(TokenKind::Semicolon),
+        t(TokenKind::True),
+        t(TokenKind::Semicolon),
+        t(TokenKind::RightParen),
+        t(TokenKind::Number(1.0)),
+        t(TokenKind::Semicolon),
+        t(TokenKind::Eof),
+    ]);
+    assert_eq!(stmts.len(), 1);
+    match &stmts[0].kind {
+        StmtKind::While { condition, body: _ } => {
+            assert!(matches!(condition.kind, ExprKind::LitBoolean(true)));
+        }
+        _ => panic!("expected While, got {:?}", stmts[0].kind),
+    }
+}
+
+#[test]
+fn parse_for_loop_with_initializer() {
+    let stmts = parse(vec![
+        t(TokenKind::For),
+        t(TokenKind::LeftParen),
+        t(TokenKind::Var),
+        t(TokenKind::Identifier("i")),
+        t(TokenKind::Equal),
+        t(TokenKind::Number(0.0)),
+        t(TokenKind::Semicolon),
+        t(TokenKind::True),
+        t(TokenKind::Semicolon),
+        t(TokenKind::RightParen),
+        t(TokenKind::Number(1.0)),
+        t(TokenKind::Semicolon),
+        t(TokenKind::Eof),
+    ]);
+    match &stmts[0].kind {
+        StmtKind::Block(stmts) => {
+            assert_eq!(stmts.len(), 2);
+            assert!(matches!(stmts[0].kind, StmtKind::VariableDecl { id, .. } if id == "i"));
+            assert!(matches!(stmts[1].kind, StmtKind::While { .. }));
+        }
+        _ => panic!("expected Block, got {:?}", stmts[0].kind),
+    }
+}
