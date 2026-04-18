@@ -31,8 +31,7 @@
         devShells.default = pkgs.mkShell {
           nativeBuildInputs = with pkgs; [
             rust-bin.stable.latest.default
-            clippy
-            rust-analyzer-unwrapped
+            rust-analyzer
           ];
         };
       }
