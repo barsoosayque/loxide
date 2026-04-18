@@ -67,6 +67,10 @@ pub enum StmtKind<'src> {
         then: Box<Stmt<'src>>,
         or_else: Option<Box<Stmt<'src>>>,
     },
+    While {
+        condition: Box<Expr<'src>>,
+        body: Box<Stmt<'src>>,
+    },
 }
 
 pub trait DisplayTree {
@@ -222,6 +226,14 @@ impl DisplayTree for Stmt<'_> {
                     write!(f, "\n{t}└── then")?;
                     then.format_tree(f, indent + 1)?;
                 }
+                Ok(())
+            }
+            StmtKind::While { condition, body } => {
+                write!(f, "While{span}")?;
+                write!(f, "\n{t}├── condition ")?;
+                condition.format_tree(f, indent + 1)?;
+                write!(f, "\n{t}└── body ")?;
+                body.format_tree(f, indent + 1)?;
                 Ok(())
             }
         }

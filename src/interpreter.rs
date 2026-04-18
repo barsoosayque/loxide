@@ -169,6 +169,14 @@ impl<'env, 'src> Interpreter<'env, 'src> {
                     return Ok(or_else_value);
                 }
             }
+            StmtKind::While { condition, body } => {
+                while self
+                    .eval(&condition)
+                    .and_then(|v| self.cast_boolean(&v, condition.span.clone()))?
+                {
+                    self.execute(&body)?;
+                }
+            }
         }
         Ok(LoxValue::Nil)
     }

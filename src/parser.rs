@@ -151,6 +151,19 @@ where
             consume!(self, TokenKind::Semicolon, "';' after print statement")?;
             return Ok(Stmt::new(StmtKind::Print(Box::new(expr)), self.stack.pop()));
         }
+        if let Some(_) = expect!(self, TokenKind::While) {
+            consume!(self, TokenKind::LeftParen, "'(' after 'while'")?;
+            let condition = self.expr()?;
+            consume!(self, TokenKind::RightParen, "')' after condition")?;
+            let body = self.stmt()?;
+            return Ok(Stmt::new(
+                StmtKind::While {
+                    condition: Box::new(condition),
+                    body: Box::new(body),
+                },
+                self.stack.pop(),
+            ));
+        }
 
         if let Some(_) = expect!(self, TokenKind::LeftBrace) {
             let mut stmts = vec![];
