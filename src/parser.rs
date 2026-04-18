@@ -126,6 +126,60 @@ where
     }
 
     pub fn stmt(&mut self) -> LoxResult<'src, Stmt<'src>> {
+        if let Some(_) = expect!(self, TokenKind::For) {
+            consume!(self, TokenKind::LeftParen, "'(' after 'for'")?;
+            let initializer = match expect!(self, t in TokenKind::Semicolon | TokenKind::Var => t.kind)
+            {
+                Some(TokenKind::Semicolon) => None,
+                Some(TokenKind::Var) => Some(self.var_decl()?),
+                _ => {
+                    let expr = self.expr()?;
+                    consume!(self, TokenKind::Semicolon, "';' after loop initializer")?;
+                    Some(Stmt::new(StmtKind::Expr(Box::new(expr)), self.stack.pop()))
+                }
+            };
+            let condition = match expect!(self, TokenKind::Semicolon) {
+                Some(_) => Expr::new(ExprKind::LitBoolean(true), self.stack.pop()),
+                _ => {
+                    let expr = self.expr()?;
+                    consume!(self, TokenKind::Semicolon, "';' after loop condition")?;
+                    expr
+                }
+            };
+            let increment = match expect!(self, TokenKind::RightParen) {
+                Some(_) => None,
+                _ => {
+                    let expr = self.expr()?;
+                    consume!(self, TokenKind::RightParen, "')' after loop increment")?;
+                    Some(Stmt::new(StmtKind::Expr(Box::new(expr)), self.stack.pop()))
+                }
+            };
+
+            let mut body = self.stmt()?;
+            let span = body.span.clone();
+            if let Some(increment) = increment {
+                body = Stmt::new(
+                    StmtKind::Block(vec![Box::new(body), Box::new(increment)]),
+                    span.clone(),
+                );
+            }
+            body = Stmt::new(
+                StmtKind::While {
+                    condition: Box::new(condition),
+                    body: Box::new(body),
+                },
+                span.clone(),
+            );
+            if let Some(initializer) = initializer {
+                body = Stmt::new(
+                    StmtKind::Block(vec![Box::new(initializer), Box::new(body)]),
+                    span.clone(),
+                );
+            }
+
+            return Ok(body);
+        }
+
         if let Some(_) = expect!(self, TokenKind::If) {
             consume!(self, TokenKind::LeftParen, "'(' after if")?;
             let condition = self.expr()?;
@@ -151,6 +205,7 @@ where
             consume!(self, TokenKind::Semicolon, "';' after print statement")?;
             return Ok(Stmt::new(StmtKind::Print(Box::new(expr)), self.stack.pop()));
         }
+
         if let Some(_) = expect!(self, TokenKind::While) {
             consume!(self, TokenKind::LeftParen, "'(' after 'while'")?;
             let condition = self.expr()?;
@@ -390,13 +445,13 @@ where
     }
 
     fn is_end(&mut self) -> bool {
-        matches!(
+        return matches!(
             self.peek(),
             None | Some(Token {
                 kind: TokenKind::Eof,
                 ..
             })
-        )
+        );
     }
 }
 
