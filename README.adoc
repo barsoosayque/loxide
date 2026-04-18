@@ -1,6 +1,8 @@
 = Loxide
 
 Rust implementation of https://craftinginterpreters.com/[*Lox language*] interpreter for our https://snpefk.github.io/bookclub/[CS Bookclub].
+Specifically, the tree-walker implementation.
+But since java and rust are diferrent languages, I took some liberties with changing the actual implementations of concepts taught in the book.
 
 == Goals
 
