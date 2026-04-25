@@ -1,0 +1,8 @@
+---
+source: tests/snapshots.rs
+assertion_line: 39
+expression: run_lox(file)
+---
+1
+2
+3

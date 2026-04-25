@@ -12,7 +12,80 @@ const NUMBER_KIND: &'static str = "number";
 const STRING_KIND: &'static str = "string";
 const BOOLEAN_KIND: &'static str = "boolean";
 const NIL_KIND: &'static str = "nil";
-const NATIVE_FUN_KIND: &'static str = "native_fun";
+const NATIVE_FUN_KIND: &'static str = "native-fun";
+const FUN_KIND: &'static str = "fun";
+
+pub trait LoxCall<'src> {
+    fn arity(&self) -> usize;
+
+    fn call(
+        &self,
+        interpreter: &mut Interpreter<'_, 'src>,
+        args: Vec<LoxValue<'src>>,
+    ) -> LoxResult<'src, LoxValue<'src>>;
+}
+
+#[derive(Debug, Clone)]
+pub struct LoxNativeFun<'src> {
+    f: fn(args: Vec<LoxValue<'src>>) -> LoxResult<'src, LoxValue<'src>>,
+    arity: usize,
+}
+
+impl<'src> LoxNativeFun<'src> {
+    pub fn new(
+        f: fn(args: Vec<LoxValue<'src>>) -> LoxResult<'src, LoxValue<'src>>,
+        arity: usize,
+    ) -> Self {
+        Self { f, arity }
+    }
+}
+
+impl<'src> LoxCall<'src> for LoxNativeFun<'src> {
+    fn arity(&self) -> usize {
+        self.arity
+    }
+
+    fn call(
+        &self,
+        _interpreter: &mut Interpreter,
+        args: Vec<LoxValue<'src>>,
+    ) -> LoxResult<'src, LoxValue<'src>> {
+        (self.f)(args)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct LoxFun<'src> {
+    name: &'src str,
+    params: Vec<&'src str>,
+    body: Box<Stmt<'src>>,
+}
+
+impl<'src> LoxFun<'src> {
+    pub fn new(name: &'src str, params: Vec<&'src str>, body: Box<Stmt<'src>>) -> Self {
+        Self { name, params, body }
+    }
+}
+
+impl<'src> LoxCall<'src> for LoxFun<'src> {
+    fn arity(&self) -> usize {
+        self.params.len()
+    }
+
+    fn call(
+        &self,
+        interpreter: &mut Interpreter<'_, 'src>,
+        args: Vec<LoxValue<'src>>,
+    ) -> LoxResult<'src, LoxValue<'src>> {
+        interpreter.env.push_scope();
+        for (id, value) in self.params.iter().zip(args.iter()) {
+            interpreter.env.define(*id, value.clone());
+        }
+        interpreter.execute(&self.body)?;
+        interpreter.env.pop_scope();
+        return Ok(LoxValue::Nil);
+    }
+}
 
 #[derive(Debug, Default, Clone)]
 pub enum LoxValue<'src> {
@@ -21,10 +94,8 @@ pub enum LoxValue<'src> {
     Number(f64),
     String(Cow<'src, str>),
     Boolean(bool),
-    NativeFun {
-        f: fn(args: Vec<LoxValue<'src>>) -> LoxResult<'src, LoxValue<'src>>,
-        arity: usize,
-    },
+    NativeFun(LoxNativeFun<'src>),
+    Fun(LoxFun<'src>),
 }
 
 impl<'src> LoxValue<'src> {
@@ -57,20 +128,7 @@ impl<'src> LoxValue<'src> {
             Self::Boolean(_) => BOOLEAN_KIND,
             Self::Nil => NIL_KIND,
             Self::NativeFun { .. } => NATIVE_FUN_KIND,
-        }
-    }
-
-    fn call(&self, args: Vec<LoxValue<'src>>) -> LoxResult<'src, LoxValue<'src>> {
-        match self {
-            &Self::NativeFun { f, .. } => f(args),
-            _ => Ok(LoxValue::Nil),
-        }
-    }
-
-    fn arity(&self) -> Option<usize> {
-        match self {
-            &Self::NativeFun { arity, .. } => Some(arity),
-            _ => None,
+            Self::Fun { .. } => FUN_KIND,
         }
     }
 }
@@ -95,7 +153,8 @@ impl std::fmt::Display for LoxValue<'_> {
             Self::String(s) => write!(f, "\"{s}\""),
             Self::Boolean(b) => write!(f, "{b}"),
             Self::Nil => write!(f, "nil"),
-            Self::NativeFun { f: fun, .. } => write!(f, "native-fun {fun:?}"),
+            Self::NativeFun(fun) => write!(f, "native-fun {:?}", fun.f),
+            Self::Fun(fun) => write!(f, "fun {}({})", fun.name, fun.params.join(",")),
         }
     }
 }
@@ -197,6 +256,12 @@ impl<'env, 'src> Interpreter<'env, 'src> {
                 {
                     self.execute(&body)?;
                 }
+            }
+            StmtKind::Function { name, params, body } => {
+                self.env.define(
+                    *name,
+                    LoxValue::Fun(LoxFun::new(name, params.clone(), body.clone())),
+                );
             }
         }
         Ok(LoxValue::Nil)
@@ -326,11 +391,7 @@ impl<'env, 'src> Interpreter<'env, 'src> {
             &ExprKind::LitNumber(n) => return Ok(LoxValue::Number(n)),
             &ExprKind::LitBoolean(b) => return Ok(LoxValue::Boolean(b)),
             ExprKind::LitNil => return Ok(LoxValue::Nil),
-            ExprKind::Call {
-                callee,
-                paren: _,
-                args,
-            } => {
+            ExprKind::Call { callee, args } => {
                 let callee = self.eval(callee)?;
                 let args = args
                     .iter()
@@ -348,28 +409,40 @@ impl<'env, 'src> Interpreter<'env, 'src> {
     }
 
     fn call(
-        &self,
+        &mut self,
         callee: LoxValue<'src>,
         args: Vec<LoxValue<'src>>,
         span: SourceSpan,
     ) -> LoxResult<'src, LoxValue<'src>> {
-        let arity = callee.arity().ok_or_else(|| {
-            LoxError::new(
+        fn check_arity<'src, C: LoxCall<'src>>(
+            callable: &C,
+            provided: usize,
+            source: &Source<'src>,
+            span: &SourceSpan,
+        ) -> LoxResult<'src, bool> {
+            if callable.arity() != provided {
+                return Err(LoxError::new(
+                    LoxErrorKind::InvalidArity(provided, callable.arity()),
+                    source.clone(),
+                    span.clone(),
+                ));
+            }
+            Ok(true)
+        }
+
+        match callee {
+            LoxValue::NativeFun(fun) if check_arity(&fun, args.len(), &self.source, &span)? => {
+                fun.call(self, args)
+            }
+            LoxValue::Fun(fun) if check_arity(&fun, args.len(), &self.source, &span)? => {
+                fun.call(self, args)
+            }
+            _ => Err(LoxError::new(
                 LoxErrorKind::InvalidCallee,
                 self.source.clone(),
                 span.clone(),
-            )
-        })?;
-
-        if args.len() != arity {
-            return Err(LoxError::new(
-                LoxErrorKind::InvalidArity(args.len(), arity),
-                self.source.clone(),
-                span,
-            ));
+            )),
         }
-
-        callee.call(args)
     }
 
     cast!(cast_number => f64, try_as_number in LoxValue::Number(v) => v, as NUMBER_KIND);

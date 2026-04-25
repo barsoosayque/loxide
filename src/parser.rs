@@ -16,6 +16,31 @@ where
     tokens: Peekable<I>,
 }
 
+macro_rules! expect_many {
+    ($parser:expr, $expect:expr; until $token_pat:pat, $delim_pat:pat) => {{
+        let mut r = vec![];
+        if !matches!(
+            $parser.peek(),
+            Some(Token {
+                kind: $token_pat,
+                ..
+            })
+        ) {
+            loop {
+                r.push($expect);
+                if !expect!($parser, $delim_pat).is_some() {
+                    break;
+                }
+            }
+        }
+        let _paren = consume!($parser, $token_pat)?;
+        r
+    }};
+    ($parser:expr, $expect:expr; until $token_pat:pat) => {
+        expect_many!($parser, $expect; until $token_pat, TokenKind::Comma)
+    };
+}
+
 macro_rules! expect {
     ($parser:expr, $token:ident in $token_pat:pat => $ret:expr) => {
         matches!(
@@ -220,20 +245,28 @@ where
             ));
         }
 
+        if let Some(_) = expect!(self, TokenKind::Fun) {
+            let name = consume!(self, TokenKind::Identifier(name) => name, "function name")?;
+            consume!(self, TokenKind::LeftParen, "'(' after function name")?;
+            let params = expect_many!(
+                self,
+                consume!(self, TokenKind::Identifier(name) => name, "parameter name")?;
+                until TokenKind::RightParen
+            );
+            consume!(self, TokenKind::LeftBrace, "'{' before function body")?;
+            let body = self.block()?;
+            return Ok(Stmt::new(
+                StmtKind::Function {
+                    name,
+                    params,
+                    body: Box::new(body),
+                },
+                self.stack.pop(),
+            ));
+        }
+
         if let Some(_) = expect!(self, TokenKind::LeftBrace) {
-            let mut stmts = vec![];
-            while match self.peek() {
-                Some(Token {
-                    kind: TokenKind::RightBrace,
-                    ..
-                }) => false,
-                Some(_) => true,
-                _ => false,
-            } {
-                stmts.push(Box::new(self.decl()?));
-            }
-            consume!(self, TokenKind::RightBrace, "'}' after block")?;
-            return Ok(Stmt::new(StmtKind::Block(stmts), self.stack.pop()));
+            return self.block();
         }
 
         let expr = self.expr()?;
@@ -250,6 +283,22 @@ where
 
         consume!(self, TokenKind::Semicolon, "';' after statement")?;
         return Ok(Stmt::new(StmtKind::Expr(Box::new(expr)), self.stack.pop()));
+    }
+
+    pub fn block(&mut self) -> LoxResult<'src, Stmt<'src>> {
+        let mut stmts = vec![];
+        while match self.peek() {
+            Some(Token {
+                kind: TokenKind::RightBrace,
+                ..
+            }) => false,
+            Some(_) => true,
+            _ => false,
+        } {
+            stmts.push(Box::new(self.decl()?));
+        }
+        consume!(self, TokenKind::RightBrace, "'}' after block")?;
+        Ok(Stmt::new(StmtKind::Block(stmts), self.stack.pop()))
     }
 
     pub fn expr(&mut self) -> LoxResult<'src, Expr<'src>> {
@@ -347,33 +396,11 @@ where
 
         loop {
             if expect!(self, TokenKind::LeftParen).is_some() {
-                let mut args = vec![];
-                if !matches!(
-                    self.peek(),
-                    Some(Token {
-                        kind: TokenKind::RightParen,
-                        ..
-                    })
-                ) {
-                    loop {
-                        let arg = self.expr()?;
-                        args.push(Box::new(arg));
-                        if !expect!(self, TokenKind::Comma).is_some() {
-                            break;
-                        }
-                    }
-                }
-
-                let paren = consume!(
-                    self,
-                    TokenKind::RightParen,
-                    "Expect ')' after function arguments."
-                )?;
+                let args = expect_many!(self, Box::new(self.expr()?); until TokenKind::RightParen);
 
                 expr = Expr::new(
                     ExprKind::Call {
                         callee: Box::new(expr),
-                        paren,
                         args,
                     },
                     self.stack.pop(),

@@ -1,6 +1,9 @@
 use std::borrow::Cow;
 
-use crate::{error::LoxResult, interpreter::LoxValue};
+use crate::{
+    error::LoxResult,
+    interpreter::{LoxNativeFun, LoxValue},
+};
 
 type EnvLayer<'src> = hashbrown::HashMap<Cow<'src, str>, LoxValue<'src>>;
 
@@ -61,10 +64,7 @@ fn std_env_layer<'src>() -> EnvLayer<'src> {
 
     env.insert(
         "clock".into(),
-        LoxValue::NativeFun {
-            f: std_clock,
-            arity: 0,
-        },
+        LoxValue::NativeFun(LoxNativeFun::new(std_clock, 0)),
     );
 
     env

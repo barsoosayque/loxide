@@ -36,3 +36,4 @@ test_snapshot!(conditional);
 test_snapshot!(r#while);
 test_snapshot!(r#for);
 test_snapshot!(r#fib);
+test_snapshot!(recursive_counter);

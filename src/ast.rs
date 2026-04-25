@@ -48,7 +48,6 @@ pub enum ExprKind<'src> {
     Var(&'src str),
     Call {
         callee: Box<Expr<'src>>,
-        paren: TokenKind<'src>,
         args: Vec<Box<Expr<'src>>>,
     },
     LitString(&'src str),
@@ -74,6 +73,11 @@ pub enum StmtKind<'src> {
     },
     While {
         condition: Box<Expr<'src>>,
+        body: Box<Stmt<'src>>,
+    },
+    Function {
+        name: &'src str,
+        params: Vec<&'src str>,
         body: Box<Stmt<'src>>,
     },
 }
@@ -136,11 +140,7 @@ impl DisplayTree for Expr<'_> {
                 value.format_tree(f, indent + 1)?;
                 Ok(())
             }
-            ExprKind::Call {
-                callee,
-                paren: _,
-                args,
-            } => {
+            ExprKind::Call { callee, args } => {
                 write!(f, "Call{span} args: {}", args.len())?;
                 if args.is_empty() {
                     write!(f, "\n{t}└── callee ")?;
@@ -259,6 +259,12 @@ impl DisplayTree for Stmt<'_> {
                 write!(f, "While{span}")?;
                 write!(f, "\n{t}├── condition ")?;
                 condition.format_tree(f, indent + 1)?;
+                write!(f, "\n{t}└── body ")?;
+                body.format_tree(f, indent + 1)?;
+                Ok(())
+            }
+            StmtKind::Function { name, params, body } => {
+                write!(f, "Fun{span} {name}({})", params.join(","))?;
                 write!(f, "\n{t}└── body ")?;
                 body.format_tree(f, indent + 1)?;
                 Ok(())
