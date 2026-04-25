@@ -339,7 +339,51 @@ where
             ));
         }
 
-        self.primary()
+        self.call()
+    }
+
+    fn call(&mut self) -> LoxResult<'src, Expr<'src>> {
+        let mut expr = self.primary()?;
+
+        loop {
+            if expect!(self, TokenKind::LeftParen).is_some() {
+                let mut args = vec![];
+                if !matches!(
+                    self.peek(),
+                    Some(Token {
+                        kind: TokenKind::RightParen,
+                        ..
+                    })
+                ) {
+                    loop {
+                        let arg = self.expr()?;
+                        args.push(Box::new(arg));
+                        if !expect!(self, TokenKind::Comma).is_some() {
+                            break;
+                        }
+                    }
+                }
+
+                let paren = consume!(
+                    self,
+                    TokenKind::RightParen,
+                    "Expect ')' after function arguments."
+                )?;
+
+                expr = Expr::new(
+                    ExprKind::Call {
+                        callee: Box::new(expr),
+                        paren,
+                        args,
+                    },
+                    self.stack.pop(),
+                );
+            } else {
+                break;
+            }
+        }
+
+        Ok(expr)
     }
 
     fn primary(&mut self) -> LoxResult<'src, Expr<'src>> {

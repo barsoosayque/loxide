@@ -1,18 +1,20 @@
 use std::borrow::Cow;
 
-use crate::interpreter::LoxValue;
+use crate::{error::LoxResult, interpreter::LoxValue};
 
 type EnvLayer<'src> = hashbrown::HashMap<Cow<'src, str>, LoxValue<'src>>;
 
 #[derive(Debug, Clone)]
 pub struct Environment<'src> {
     scopes: Vec<EnvLayer<'src>>,
+    global: EnvLayer<'src>,
 }
 
 impl Default for Environment<'_> {
     fn default() -> Self {
         Self {
             scopes: vec![Default::default()],
+            global: std_env_layer(),
         }
     }
 }
@@ -31,7 +33,11 @@ impl<'src> Environment<'src> {
 
     pub fn get(&self, id: impl AsRef<str>) -> Option<&LoxValue<'src>> {
         let id = id.as_ref();
-        self.scopes.iter().rev().find_map(|layer| layer.get(id))
+        self.scopes
+            .iter()
+            .rev()
+            .find_map(|layer| layer.get(id))
+            .or_else(|| self.global.get(id))
     }
 
     pub fn define(&mut self, id: impl Into<Cow<'src, str>>, value: LoxValue<'src>) {
@@ -48,4 +54,27 @@ impl<'src> Environment<'src> {
         }
         false
     }
+}
+
+fn std_env_layer<'src>() -> EnvLayer<'src> {
+    let mut env = EnvLayer::default();
+
+    env.insert(
+        "clock".into(),
+        LoxValue::NativeFun {
+            f: std_clock,
+            arity: 0,
+        },
+    );
+
+    env
+}
+
+fn std_clock<'src>(_args: Vec<LoxValue<'src>>) -> LoxResult<'src, LoxValue<'src>> {
+    return Ok(LoxValue::Number(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs_f64(),
+    ));
 }

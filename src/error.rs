@@ -22,6 +22,8 @@ pub enum LoxErrorKind<'src> {
     InvalidNumber(String),
     InvalidConversion(&'static str, &'static str),
     InvalidAssignmentTarget,
+    InvalidCallee,
+    InvalidArity(usize, usize),
     Unreachable,
 }
 
@@ -41,6 +43,15 @@ impl<'src> std::fmt::Display for LoxErrorKind<'src> {
             Self::InvalidNumber(s) => write!(f, "Invalid number: '{s}'"),
             Self::InvalidConversion(from, to) => {
                 write!(f, "Cannot convert {from} to {to}")
+            }
+            Self::InvalidCallee => {
+                write!(f, "Only functions and classes can be called")
+            }
+            Self::InvalidArity(provided, expected) => {
+                write!(
+                    f,
+                    "Invalid number of arguments: {provided} (expected: {expected})"
+                )
             }
             Self::InvalidAssignmentTarget => f.write_str("Invalid assignment target"),
             Self::Unreachable => {

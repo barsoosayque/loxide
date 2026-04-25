@@ -46,6 +46,11 @@ pub enum ExprKind<'src> {
         value: Box<Expr<'src>>,
     },
     Var(&'src str),
+    Call {
+        callee: Box<Expr<'src>>,
+        paren: TokenKind<'src>,
+        args: Vec<Box<Expr<'src>>>,
+    },
     LitString(&'src str),
     LitNumber(f64),
     LitBoolean(bool),
@@ -129,6 +134,28 @@ impl DisplayTree for Expr<'_> {
                 write!(f, "Assign{span} {id}")?;
                 write!(f, "\n{t}└── ")?;
                 value.format_tree(f, indent + 1)?;
+                Ok(())
+            }
+            ExprKind::Call {
+                callee,
+                paren: _,
+                args,
+            } => {
+                write!(f, "Call{span} args: {}", args.len())?;
+                if args.is_empty() {
+                    write!(f, "\n{t}└── callee ")?;
+                } else {
+                    write!(f, "\n{t}├── callee ")?;
+                }
+                callee.format_tree(f, indent + 1)?;
+                for (i, arg) in args.iter().enumerate() {
+                    if (i + 1) >= args.len() {
+                        write!(f, "\n{t}└── ")?;
+                    } else {
+                        write!(f, "\n{t}├── ")?;
+                    }
+                    arg.format_tree(f, indent + 1)?;
+                }
                 Ok(())
             }
             ExprKind::LitString(s) => {
