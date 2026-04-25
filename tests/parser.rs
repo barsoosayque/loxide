@@ -579,3 +579,90 @@ fn parse_for_loop_with_initializer() {
         _ => panic!("expected Block, got {:?}", stmts[0].kind),
     }
 }
+
+#[test]
+fn parse_function_declaration() {
+    let stmts = parse(vec![
+        t(TokenKind::Fun),
+        t(TokenKind::Identifier("foo")),
+        t(TokenKind::LeftParen),
+        t(TokenKind::RightParen),
+        t(TokenKind::LeftBrace),
+        t(TokenKind::RightBrace),
+        t(TokenKind::Eof),
+    ]);
+    assert_eq!(stmts.len(), 1);
+    match &stmts[0].kind {
+        StmtKind::Function { name, params, body } => {
+            assert_eq!(*name, "foo");
+            assert!(params.is_empty());
+            assert!(matches!(body.as_ref().kind, StmtKind::Block(_)));
+        }
+        _ => panic!("expected Function, got {:?}", stmts[0].kind),
+    }
+}
+
+#[test]
+fn parse_function_declaration_with_params() {
+    let stmts = parse(vec![
+        t(TokenKind::Fun),
+        t(TokenKind::Identifier("add")),
+        t(TokenKind::LeftParen),
+        t(TokenKind::Identifier("a")),
+        t(TokenKind::Comma),
+        t(TokenKind::Identifier("b")),
+        t(TokenKind::RightParen),
+        t(TokenKind::LeftBrace),
+        t(TokenKind::Number(1.0)),
+        t(TokenKind::Semicolon),
+        t(TokenKind::RightBrace),
+        t(TokenKind::Eof),
+    ]);
+    match &stmts[0].kind {
+        StmtKind::Function { name, params, body } => {
+            assert_eq!(*name, "add");
+            assert_eq!(params, &["a", "b"]);
+            assert!(matches!(body.as_ref().kind, StmtKind::Block(_)));
+        }
+        _ => panic!("expected Function, got {:?}", stmts[0].kind),
+    }
+}
+
+#[test]
+fn parse_function_call() {
+    let expr = parse_single(vec![
+        t(TokenKind::Identifier("foo")),
+        t(TokenKind::LeftParen),
+        t(TokenKind::RightParen),
+        t(TokenKind::Eof),
+    ]);
+    match expr.kind {
+        ExprKind::Call { callee, args } => {
+            assert!(matches!(callee.kind, ExprKind::Var(id) if id == "foo"));
+            assert!(args.is_empty());
+        }
+        _ => panic!("expected Call, got {:?}", expr.kind),
+    }
+}
+
+#[test]
+fn parse_function_call_with_args() {
+    let expr = parse_single(vec![
+        t(TokenKind::Identifier("add")),
+        t(TokenKind::LeftParen),
+        t(TokenKind::Number(1.0)),
+        t(TokenKind::Comma),
+        t(TokenKind::Number(2.0)),
+        t(TokenKind::RightParen),
+        t(TokenKind::Eof),
+    ]);
+    match expr.kind {
+        ExprKind::Call { callee, args } => {
+            assert!(matches!(callee.kind, ExprKind::Var(id) if id == "add"));
+            assert_eq!(args.len(), 2);
+            assert!(matches!(args[0].kind, ExprKind::LitNumber(1.0)));
+            assert!(matches!(args[1].kind, ExprKind::LitNumber(2.0)));
+        }
+        _ => panic!("expected Call, got {:?}", expr.kind),
+    }
+}

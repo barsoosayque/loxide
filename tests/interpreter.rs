@@ -107,6 +107,21 @@ fn block(stmts: Vec<Stmt<'static>>) -> Stmt<'static> {
     stmt(StmtKind::Block(stmts.into_iter().map(Box::new).collect()))
 }
 
+fn fun_decl(id: &'static str, params: Vec<&'static str>, body: Stmt<'static>) -> Stmt<'static> {
+    stmt(StmtKind::Function {
+        name: id,
+        params,
+        body: Box::new(body),
+    })
+}
+
+fn call(callee: Expr<'static>, args: Vec<Expr<'static>>) -> Expr<'static> {
+    expr(ExprKind::Call {
+        callee: Box::new(callee),
+        args: args.into_iter().map(Box::new).collect(),
+    })
+}
+
 fn interpret_expr(expr: Expr<'static>) -> LoxValue<'static> {
     let stmt = stmt(StmtKind::ExprReturn(Box::new(expr)));
     let mut env = Environment::default();
@@ -398,4 +413,68 @@ fn interpret_while_loop_multiple_iterations() {
     let mut env = Environment::default();
     Interpreter::execute_many([mut_env, while_stmt], "", &mut env).unwrap();
     assert!(matches!(env.get("i"), Some(LoxValue::Number(3.0))));
+}
+
+#[test]
+fn interpret_function_declaration() {
+    let stmt = fun_decl(
+        "foo",
+        vec![],
+        stmt(StmtKind::ExprReturn(Box::new(num(42.0)))),
+    );
+    let (value, env) = interpret_stmt(stmt);
+    assert!(matches!(value, LoxValue::Nil));
+    assert!(matches!(env.get("foo"), Some(LoxValue::Fun(_))));
+}
+
+#[test]
+fn interpret_function_declaration_with_params() {
+    let stmt = fun_decl(
+        "add",
+        vec!["a", "b"],
+        stmt(StmtKind::ExprReturn(Box::new(binary(
+            var_expr("a"),
+            TokenKind::Plus,
+            var_expr("b"),
+        )))),
+    );
+    let (value, env) = interpret_stmt(stmt);
+    assert!(matches!(value, LoxValue::Nil));
+    assert!(matches!(env.get("add"), Some(LoxValue::Fun(_))));
+}
+
+#[test]
+fn interpret_function_call() {
+    let fun = fun_decl(
+        "foo",
+        vec![],
+        stmt(StmtKind::ExprReturn(Box::new(num(42.0)))),
+    );
+    let call_stmt = stmt(StmtKind::ExprReturn(Box::new(call(
+        var_expr("foo"),
+        vec![],
+    ))));
+    let mut env = Environment::default();
+    let value = Interpreter::execute_many([fun, call_stmt], "", &mut env).unwrap();
+    assert!(matches!(value, LoxValue::Number(42.0)));
+}
+
+#[test]
+fn interpret_function_call_with_args() {
+    let fun = fun_decl(
+        "add",
+        vec!["a", "b"],
+        stmt(StmtKind::ExprReturn(Box::new(binary(
+            var_expr("a"),
+            TokenKind::Plus,
+            var_expr("b"),
+        )))),
+    );
+    let call_stmt = stmt(StmtKind::ExprReturn(Box::new(call(
+        var_expr("add"),
+        vec![num(1.0), num(2.0)],
+    ))));
+    let mut env = Environment::default();
+    let value = Interpreter::execute_many([fun, call_stmt], "", &mut env).unwrap();
+    assert!(matches!(value, LoxValue::Number(3.0)));
 }

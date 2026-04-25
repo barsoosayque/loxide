@@ -81,9 +81,9 @@ impl<'src> LoxCall<'src> for LoxFun<'src> {
         for (id, value) in self.params.iter().zip(args.iter()) {
             interpreter.env.define(*id, value.clone());
         }
-        interpreter.execute(&self.body)?;
+        let result = interpreter.execute(&self.body);
         interpreter.env.pop_scope();
-        return Ok(LoxValue::Nil);
+        result
     }
 }
 
